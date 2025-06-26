@@ -1,11 +1,11 @@
 <?php
 /**
  * Plugin Name: WooCommerce Update API
- * Plugin URI: https://estratos.net
+ * Plugin URI: https://yourwebsite.com/woo-update-api
  * Description: Fetches real-time product pricing and inventory from external APIs.
  * Version: 1.0.0
- * Author: Estratos
- * Author URI: https://estratos.net
+ * Author: Your Name
+ * Author URI: https://yourwebsite.com
  * Text Domain: woo-update-api
  * Domain Path: /languages
  * Requires at least: 6.0
@@ -38,27 +38,35 @@ function woo_update_api_activate() {
 }
 
 // Initialize plugin
-add_action('plugins_loaded', 'woo_update_api_init');
+add_action('plugins_loaded', 'woo_update_api_init', 20); // Increased priority to 20
 
 function woo_update_api_init() {
     // Load required files
     $files = [
         'includes/class-api-handler.php',
         'includes/class-price-updater.php',
-        'admin/class-settings.php'
+        'admin/class-settings.php' // Make sure this path is correct
     ];
 
     foreach ($files as $file) {
-        if (file_exists(WOO_UPDATE_API_PATH . $file)) {
-            require_once WOO_UPDATE_API_PATH . $file;
+        $file_path = WOO_UPDATE_API_PATH . $file;
+        if (file_exists($file_path)) {
+            require_once $file_path;
+        } else {
+            error_log('[Woo Update API] Missing file: ' . $file_path);
         }
     }
 
-    // Initialize components
-    Woo_Update_API\API_Handler::instance();
-    Woo_Update_API\Price_Updater::instance();
+    // Check if classes exist before initialization
+    if (class_exists('Woo_Update_API\API_Handler')) {
+        Woo_Update_API\API_Handler::instance();
+    }
+
+    if (class_exists('Woo_Update_API\Price_Updater')) {
+        Woo_Update_API\Price_Updater::instance();
+    }
     
-    if (is_admin()) {
+    if (is_admin() && class_exists('Woo_Update_API\Admin\Settings')) {
         Woo_Update_API\Admin\Settings::instance();
     }
 }
@@ -70,6 +78,6 @@ function woo_update_api_load_textdomain() {
     load_plugin_textdomain(
         'woo-update-api',
         false,
-        dirname(plugin_basename(__FILE__)) . '/languages'
+        dirname(plugin_basename(__FILE__))) . '/languages'
     );
 }
