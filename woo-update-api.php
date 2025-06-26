@@ -78,6 +78,6 @@ function woo_update_api_load_textdomain() {
     load_plugin_textdomain(
         'woo-update-api',
         false,
-        dirname(plugin_basename(__FILE__))) . '/languages'
+        dirname(plugin_basename(__FILE__)) . '/languages'
     );
 }
