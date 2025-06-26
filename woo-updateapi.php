@@ -6,11 +6,9 @@
  * Author: Estratos
  * Author URI: estratos.net
  * Text Domain: woo-updateapi
- * Domain Path: /languages
- * WC requires at least: 3.0
- * WC tested up to: 8.0
+ * Requires at least: 6.0
+ * Requires PHP: 7.4
  */
-
 defined('ABSPATH') || exit;
 
 // Define plugin constants
