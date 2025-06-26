@@ -26,6 +26,8 @@ if (!in_array('woocommerce/woocommerce.php', apply_filters('active_plugins', get
     return;
 }
 
+
+
 // Include necessary files
 require_once WOO_UPDATEAPI_PLUGIN_DIR . 'includes/class-api-handler.php';
 require_once WOO_UPDATEAPI_PLUGIN_DIR . 'includes/class-price-updater.php';
