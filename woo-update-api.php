@@ -23,9 +23,7 @@ define('WOO_UPDATE_API_PATH', plugin_dir_path(__FILE__));
 define('WOO_UPDATE_API_URL', plugin_dir_url(__FILE__));
 
 // Activation checks
-register_activation_hook(__FILE__, 'woo_update_api_activate');
-
-function woo_update_api_activate() {
+register_activation_hook(__FILE__, function() {
     if (!class_exists('WooCommerce')) {
         deactivate_plugins(plugin_basename(__FILE__));
         wp_die(
@@ -35,29 +33,23 @@ function woo_update_api_activate() {
             )
         );
     }
-}
+});
 
 // Initialize plugin
-add_action('plugins_loaded', 'woo_update_api_init', 20); // Increased priority to 20
-
-function woo_update_api_init() {
-    // Load required files
-    $files = [
+add_action('plugins_loaded', function() {
+    // Load core files
+    $core_files = [
         'includes/class-api-handler.php',
-        'includes/class-price-updater.php',
-        'admin/class-settings.php' // Make sure this path is correct
+        'includes/class-price-updater.php'
     ];
-
-    foreach ($files as $file) {
-        $file_path = WOO_UPDATE_API_PATH . $file;
-        if (file_exists($file_path)) {
-            require_once $file_path;
-        } else {
-            error_log('[Woo Update API] Missing file: ' . $file_path);
+    
+    foreach ($core_files as $file) {
+        if (file_exists(WOO_UPDATE_API_PATH . $file)) {
+            require_once WOO_UPDATE_API_PATH . $file;
         }
     }
 
-    // Check if classes exist before initialization
+    // Initialize core components
     if (class_exists('Woo_Update_API\API_Handler')) {
         Woo_Update_API\API_Handler::instance();
     }
@@ -66,18 +58,23 @@ function woo_update_api_init() {
         Woo_Update_API\Price_Updater::instance();
     }
     
-    if (is_admin() && class_exists('Woo_Update_API\Admin\Settings')) {
-        Woo_Update_API\Admin\Settings::instance();
+    // Load admin files only in admin area
+    if (is_admin()) {
+        $admin_file = WOO_UPDATE_API_PATH . 'admin/class-settings.php';
+        if (file_exists($admin_file)) {
+            require_once $admin_file;
+            if (class_exists('Woo_Update_API\Admin\Settings')) {
+                Woo_Update_API\Admin\Settings::instance();
+            }
+        }
     }
-}
+}, 20);
 
 // Load translations
-add_action('init', 'woo_update_api_load_textdomain');
-
-function woo_update_api_load_textdomain() {
+add_action('init', function() {
     load_plugin_textdomain(
         'woo-update-api',
         false,
         dirname(plugin_basename(__FILE__)) . '/languages'
     );
-}
+});

@@ -1,83 +1,137 @@
 <?php
-/**
- * Plugin Name: WooCommerce Update API
- * Plugin URI: https://yourwebsite.com/woo-update-api
- * Description: Fetches real-time product pricing and inventory from external APIs.
- * Version: 1.0.0
- * Author: Your Name
- * Author URI: https://yourwebsite.com
- * Text Domain: woo-update-api
- * Domain Path: /languages
- * Requires at least: 6.0
- * Requires PHP: 7.4
- * WC requires at least: 6.0
- * WC tested up to: 8.0
- */
+namespace Woo_Update_API\Admin;
 
 defined('ABSPATH') || exit;
 
-// Define plugin constants
-define('WOO_UPDATE_API_VERSION', '1.0.0');
-define('WOO_UPDATE_API_PLUGIN_FILE', __FILE__);
-define('WOO_UPDATE_API_PATH', plugin_dir_path(__FILE__));
-define('WOO_UPDATE_API_URL', plugin_dir_url(__FILE__));
+class Settings {
+    private static $instance = null;
+    private $settings_group = 'woo_update_api_settings_group';
+    private $settings_name = 'woo_update_api_settings';
+    private $menu_slug = 'woo-update-api';
 
-// Activation checks
-register_activation_hook(__FILE__, 'woo_update_api_activate');
+    public static function instance() {
+        if (is_null(self::$instance)) {
+            self::$instance = new self();
+        }
+        return self::$instance;
+    }
 
-function woo_update_api_activate() {
-    if (!class_exists('WooCommerce')) {
-        deactivate_plugins(plugin_basename(__FILE__));
-        wp_die(
-            sprintf(
-                __('%s requires WooCommerce to be installed and active. Please install WooCommerce first.', 'woo-update-api'),
-                'WooCommerce Update API'
-            )
+    private function __construct() {
+        add_action('admin_menu', [$this, 'add_settings_page'], 20);
+        add_action('admin_init', [$this, 'register_settings'], 20);
+    }
+
+    public function add_settings_page() {
+        add_submenu_page(
+            'woocommerce',
+            __('Update API Settings', 'woo-update-api'),
+            __('Update API', 'woo-update-api'),
+            'manage_options',
+            $this->menu_slug,
+            [$this, 'render_settings_page']
         );
     }
-}
 
-// Initialize plugin
-add_action('plugins_loaded', 'woo_update_api_init', 20); // Increased priority to 20
+    public function register_settings() {
+        register_setting(
+            $this->settings_group,
+            $this->settings_name,
+            ['sanitize_callback' => [$this, 'sanitize_settings']]
+        );
 
-function woo_update_api_init() {
-    // Load required files
-    $files = [
-        'includes/class-api-handler.php',
-        'includes/class-price-updater.php',
-        'admin/class-settings.php' // Make sure this path is correct
-    ];
+        add_settings_section(
+            'woo_update_api_section',
+            __('API Connection Settings', 'woo-update-api'),
+            [$this, 'render_section'],
+            $this->menu_slug
+        );
 
-    foreach ($files as $file) {
-        $file_path = WOO_UPDATE_API_PATH . $file;
-        if (file_exists($file_path)) {
-            require_once $file_path;
-        } else {
-            error_log('[Woo Update API] Missing file: ' . $file_path);
+        add_settings_field(
+            'api_url',
+            __('API Endpoint URL', 'woo-update-api'),
+            [$this, 'render_api_url_field'],
+            $this->menu_slug,
+            'woo_update_api_section'
+        );
+
+        add_settings_field(
+            'api_key',
+            __('API Key', 'woo-update-api'),
+            [$this, 'render_api_key_field'],
+            $this->menu_slug,
+            'woo_update_api_section'
+        );
+
+        add_settings_field(
+            'cache_time',
+            __('Cache Duration (seconds)', 'woo-update-api'),
+            [$this, 'render_cache_time_field'],
+            $this->menu_slug,
+            'woo_update_api_section'
+        );
+    }
+
+    public function sanitize_settings($input) {
+        $output = [];
+        
+        if (isset($input['api_url'])) {
+            $output['api_url'] = esc_url_raw(trim($input['api_url']));
         }
+        
+        if (isset($input['api_key'])) {
+            $output['api_key'] = sanitize_text_field(trim($input['api_key']));
+        }
+        
+        if (isset($input['cache_time'])) {
+            $output['cache_time'] = absint($input['cache_time']);
+            if ($output['cache_time'] < 60) {
+                $output['cache_time'] = 60;
+            }
+        }
+        
+        return $output;
     }
 
-    // Check if classes exist before initialization
-    if (class_exists('Woo_Update_API\API_Handler')) {
-        Woo_Update_API\API_Handler::instance();
+    public function render_settings_page() {
+        if (!current_user_can('manage_options')) {
+            return;
+        }
+        
+        settings_errors('woo_update_api_messages');
+        ?>
+        <div class="wrap">
+            <h1><?php echo esc_html(get_admin_page_title()); ?></h1>
+            <form method="post" action="options.php">
+                <?php
+                settings_fields($this->settings_group);
+                do_settings_sections($this->menu_slug);
+                submit_button(__('Save Settings', 'woo-update-api'));
+                ?>
+            </form>
+        </div>
+        <?php
     }
 
-    if (class_exists('Woo_Update_API\Price_Updater')) {
-        Woo_Update_API\Price_Updater::instance();
+    public function render_section() {
+        echo '<p>' . esc_html__('Configure your external API connection details.', 'woo-update-api') . '</p>';
     }
-    
-    if (is_admin() && class_exists('Woo_Update_API\Admin\Settings')) {
-        Woo_Update_API\Admin\Settings::instance();
+
+    public function render_api_url_field() {
+        $settings = get_option($this->settings_name, []);
+        $value = $settings['api_url'] ?? '';
+        echo '<input type="url" class="regular-text" name="' . esc_attr($this->settings_name) . '[api_url]" value="' . esc_attr($value) . '" required>';
     }
-}
 
-// Load translations
-add_action('init', 'woo_update_api_load_textdomain');
+    public function render_api_key_field() {
+        $settings = get_option($this->settings_name, []);
+        $value = $settings['api_key'] ?? '';
+        echo '<input type="password" class="regular-text" name="' . esc_attr($this->settings_name) . '[api_key]" value="' . esc_attr($value) . '" required>';
+    }
 
-function woo_update_api_load_textdomain() {
-    load_plugin_textdomain(
-        'woo-update-api',
-        false,
-        dirname(plugin_basename(__FILE__))) . '/languages'
-    );
+    public function render_cache_time_field() {
+        $settings = get_option($this->settings_name, []);
+        $value = $settings['cache_time'] ?? 300;
+        echo '<input type="number" min="60" step="1" name="' . esc_attr($this->settings_name) . '[cache_time]" value="' . esc_attr($value) . '">';
+        echo '<p class="description">' . esc_html__('Minimum 60 seconds recommended', 'woo-update-api') . '</p>';
+    }
 }
