@@ -1,0 +1,13 @@
+
+
+
+DEVELOPMENT REFERENCE
+
+https://wordpress.com/forums/topic/how-to-build-a-plugin-that-update-woocommerce-product-stock-from-an-external-api/
+
+
+code sniplets 
+
+https://woocommerce.com/document/exclude-a-category-from-the-shop-page/
+
+

@@ -2,8 +2,8 @@
 /**
  * Plugin Name: Woo Updateapi
  * Version: 0.1.0
- * Author: The WordPress Contributors
- * Author URI: https://woo.com
+ * Author: Estratos
+ * Author URI: https://estratos.net
  * Text Domain: woo-updateapi
  * Domain Path: /languages
  *
