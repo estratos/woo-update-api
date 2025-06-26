@@ -1,11 +1,11 @@
 <?php
 /**
- * Plugin Name: WooCommerce Update API External API Pricing & Inventory
+ * Plugin Name: WooCommerce Update API
  * Description: Fetches product pricing and inventory from an external API in real-time.
  * Version: 1.0.0
  * Author: Estratos
  * Author URI: estratos.net
- * Text Domain: woo-update-api
+ * Text Domain: woo-updateapi
  * Domain Path: /languages
  * WC requires at least: 3.0
  * WC tested up to: 8.0
@@ -14,34 +14,34 @@
 defined('ABSPATH') || exit;
 
 // Define plugin constants
-define('WOO_UPDATE_API_VERSION', '1.0.0');
-define('WOO_UPDATE_API_PLUGIN_DIR', plugin_dir_path(__FILE__));
-define('WOO_UPDATE_API_PLUGIN_URL', plugin_dir_url(__FILE__));
+define('WOO_UPDATEAPI_VERSION', '1.0.0');
+define('WOO_UPDATEAPI_PLUGIN_DIR', plugin_dir_path(__FILE__));
+define('WOO_UPDATEAPI_PLUGIN_URL', plugin_dir_url(__FILE__));
 
 // Check if WooCommerce is active
 if (!in_array('woocommerce/woocommerce.php', apply_filters('active_plugins', get_option('active_plugins')))) {
     add_action('admin_notices', function() {
         echo '<div class="error"><p>';
-        _e('WooCommerce External API Pricing & Inventory requires WooCommerce to be installed and active.', 'wc-external-api');
+        _e('WooCommerce Update API requires WooCommerce to be installed and active.', 'woo-updateapi');
         echo '</p></div>';
     });
     return;
 }
 
 // Include necessary files
-require_once WOO_UPDATE_API_PLUGIN_DIR . 'includes/class-api-handler.php';
-require_once WOO_UPDATE_API_PLUGIN_DIR . 'includes/class-price-updater.php';
-require_once WOO_UPDATE_API_PLUGIN_DIR . 'admin/settings-page.php';
+require_once WOO_UPDATEAPI_PLUGIN_DIR . 'includes/class-api-handler.php';
+require_once WOO_UPDATEAPI_PLUGIN_DIR . 'includes/class-price-updater.php';
+require_once WOO_UPDATEAPI_PLUGIN_DIR . 'admin/settings-page.php';
 
 // Initialize the plugin
-function wc_external_api_init() {
-    WOO_Update_API_Price_Updater::init();
-    WOO_Update_API_Settings::init();
+function woo_updateapi_init() {
+    Woo_UpdateAPI_Price_Updater::init();
+    Woo_UpdateAPI_Settings::init();
 }
-add_action('plugins_loaded', 'woo_update_api_init');
+add_action('plugins_loaded', 'woo_updateapi_init');
 
 // Load text domain
-function wc_external_api_load_textdomain() {
-    load_plugin_textdomain('woo-update-api', false, dirname(plugin_basename(__FILE__)) . '/languages');
+function woo_updateapi_load_textdomain() {
+    load_plugin_textdomain('woo-updateapi', false, dirname(plugin_basename(__FILE__)) . '/languages');
 }
-add_action('plugins_loaded', 'wc_update_api_load_textdomain');
+add_action('plugins_loaded', 'woo_updateapi_load_textdomain');
