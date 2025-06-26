@@ -1,0 +1,11 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.ARROW_RIGHT = exports.ARROW_LEFT = exports.ARROW_DOWN = exports.ARROW_UP = exports.ENTER = exports.ESCAPE = exports.BACKSPACE = exports.ROOT_VALUE = void 0;
+exports.ROOT_VALUE = '__WC_TREE_SELECT_COMPONENT_ROOT__';
+exports.BACKSPACE = 'Backspace';
+exports.ESCAPE = 'Escape';
+exports.ENTER = 'Enter';
+exports.ARROW_UP = 'ArrowUp';
+exports.ARROW_DOWN = 'ArrowDown';
+exports.ARROW_LEFT = 'ArrowLeft';
+exports.ARROW_RIGHT = 'ArrowRight';

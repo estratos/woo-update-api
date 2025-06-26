@@ -1,0 +1,10 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+const TYPES = {
+    UPDATE_SETTINGS_FOR_GROUP: 'UPDATE_SETTINGS_FOR_GROUP',
+    UPDATE_ERROR_FOR_GROUP: 'UPDATE_ERROR_FOR_GROUP',
+    CLEAR_SETTINGS: 'CLEAR_SETTINGS',
+    SET_IS_REQUESTING: 'SET_IS_REQUESTING',
+    CLEAR_IS_DIRTY: 'CLEAR_IS_DIRTY',
+};
+exports.default = TYPES;

@@ -1,0 +1,12 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+const TYPES = {
+    SET_IMPORT_DATE: 'SET_IMPORT_DATE',
+    SET_IMPORT_ERROR: 'SET_IMPORT_ERROR',
+    SET_IMPORT_PERIOD: 'SET_IMPORT_PERIOD',
+    SET_IMPORT_STARTED: 'SET_IMPORT_STARTED',
+    SET_IMPORT_STATUS: 'SET_IMPORT_STATUS',
+    SET_IMPORT_TOTALS: 'SET_IMPORT_TOTALS',
+    SET_SKIP_IMPORTED: 'SET_SKIP_IMPORTED',
+};
+exports.default = TYPES;
