@@ -1,122 +1,47 @@
 <?php
 /**
- * Plugin Name: Woo Updateapi
- * Version: 0.1.0
+ * Plugin Name: WooCommerce Update API External API Pricing & Inventory
+ * Description: Fetches product pricing and inventory from an external API in real-time.
+ * Version: 1.0.0
  * Author: Estratos
- * Author URI: https://estratos.net
- * Text Domain: woo-updateapi
+ * Author URI: estratos.net
+ * Text Domain: woo-update-api
  * Domain Path: /languages
- *
- * License: GNU General Public License v3.0
- * License URI: http://www.gnu.org/licenses/gpl-3.0.html
- *
- * @package extension
+ * WC requires at least: 3.0
+ * WC tested up to: 8.0
  */
 
-defined( 'ABSPATH' ) || exit;
+defined('ABSPATH') || exit;
 
-if ( ! defined( 'MAIN_PLUGIN_FILE' ) ) {
-	define( 'MAIN_PLUGIN_FILE', __FILE__ );
+// Define plugin constants
+define('WC_EXTERNAL_API_VERSION', '1.0.0');
+define('WC_EXTERNAL_API_PLUGIN_DIR', plugin_dir_path(__FILE__));
+define('WC_EXTERNAL_API_PLUGIN_URL', plugin_dir_url(__FILE__));
+
+// Check if WooCommerce is active
+if (!in_array('woocommerce/woocommerce.php', apply_filters('active_plugins', get_option('active_plugins')))) {
+    add_action('admin_notices', function() {
+        echo '<div class="error"><p>';
+        _e('WooCommerce External API Pricing & Inventory requires WooCommerce to be installed and active.', 'wc-external-api');
+        echo '</p></div>';
+    });
+    return;
 }
 
-require_once plugin_dir_path( __FILE__ ) . '/vendor/autoload_packages.php';
+// Include necessary files
+require_once WC_EXTERNAL_API_PLUGIN_DIR . 'includes/class-api-handler.php';
+require_once WC_EXTERNAL_API_PLUGIN_DIR . 'includes/class-price-updater.php';
+require_once WC_EXTERNAL_API_PLUGIN_DIR . 'admin/settings-page.php';
 
-use WooUpdateapi\Admin\Setup;
-
-// phpcs:disable WordPress.Files.FileName
-
-/**
- * WooCommerce fallback notice.
- *
- * @since 0.1.0
- */
-function woo_updateapi_missing_wc_notice() {
-	/* translators: %s WC download URL link. */
-	echo '<div class="error"><p><strong>' . sprintf( esc_html__( 'Woo Updateapi requires WooCommerce to be installed and active. You can download %s here.', 'woo_updateapi' ), '<a href="https://woo.com/" target="_blank">WooCommerce</a>' ) . '</strong></p></div>';
+// Initialize the plugin
+function wc_external_api_init() {
+    WC_External_API_Price_Updater::init();
+    WC_External_API_Settings::init();
 }
+add_action('plugins_loaded', 'wc_external_api_init');
 
-register_activation_hook( __FILE__, 'woo_updateapi_activate' );
-
-/**
- * Activation hook.
- *
- * @since 0.1.0
- */
-function woo_updateapi_activate() {
-	if ( ! class_exists( 'WooCommerce' ) ) {
-		add_action( 'admin_notices', 'woo_updateapi_missing_wc_notice' );
-		return;
-	}
+// Load text domain
+function wc_external_api_load_textdomain() {
+    load_plugin_textdomain('woo-update-api', false, dirname(plugin_basename(__FILE__)) . '/languages');
 }
-
-if ( ! class_exists( 'woo_updateapi' ) ) :
-	/**
-	 * The woo_updateapi class.
-	 */
-	class woo_updateapi {
-		/**
-		 * This class instance.
-		 *
-		 * @var \woo_updateapi single instance of this class.
-		 */
-		private static $instance;
-
-		/**
-		 * Constructor.
-		 */
-		public function __construct() {
-			if ( is_admin() ) {
-				new Setup();
-			}
-		}
-
-		/**
-		 * Cloning is forbidden.
-		 */
-		public function __clone() {
-			wc_doing_it_wrong( __FUNCTION__, __( 'Cloning is forbidden.', 'woo_updateapi' ), $this->version );
-		}
-
-		/**
-		 * Unserializing instances of this class is forbidden.
-		 */
-		public function __wakeup() {
-			wc_doing_it_wrong( __FUNCTION__, __( 'Unserializing instances of this class is forbidden.', 'woo_updateapi' ), $this->version );
-		}
-
-		/**
-		 * Gets the main instance.
-		 *
-		 * Ensures only one instance can be loaded.
-		 *
-		 * @return \woo_updateapi
-		 */
-		public static function instance() {
-
-			if ( null === self::$instance ) {
-				self::$instance = new self();
-			}
-
-			return self::$instance;
-		}
-	}
-endif;
-
-add_action( 'plugins_loaded', 'woo_updateapi_init', 10 );
-
-/**
- * Initialize the plugin.
- *
- * @since 0.1.0
- */
-function woo_updateapi_init() {
-	load_plugin_textdomain( 'woo_updateapi', false, plugin_basename( dirname( __FILE__ ) ) . '/languages' );
-
-	if ( ! class_exists( 'WooCommerce' ) ) {
-		add_action( 'admin_notices', 'woo_updateapi_missing_wc_notice' );
-		return;
-	}
-
-	woo_updateapi::instance();
-
-}
+add_action('plugins_loaded', 'wc_external_api_load_textdomain');

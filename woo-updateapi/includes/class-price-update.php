@@ -1,7 +1,7 @@
 <?php
 if (!defined('ABSPATH')) exit;
 
-class WC_External_API_Price_Updater {
+class WOO_Update_API_Price_Updater {
     private static $instance = null;
     private $api_handler;
 
@@ -13,7 +13,7 @@ class WC_External_API_Price_Updater {
     }
 
     private function __construct() {
-        $this->api_handler = WC_External_API_Handler::init();
+        $this->api_handler = WOO_Update_API_Handler::init();
 
         // Hook into product display to update price and stock
         add_filter('woocommerce_product_get_price', [$this, 'update_product_price'], 10, 2);

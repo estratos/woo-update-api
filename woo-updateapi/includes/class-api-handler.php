@@ -1,7 +1,7 @@
 <?php
 if (!defined('ABSPATH')) exit;
 
-class WC_External_API_Handler {
+class WOO_Update_API_Handler {
     private static $instance = null;
     private $api_url;
     private $api_key;
@@ -15,14 +15,14 @@ class WC_External_API_Handler {
     }
 
     private function __construct() {
-        $settings = get_option('wc_external_api_settings');
+        $settings = get_option('woo_update_api_settings');
         $this->api_url = $settings['api_url'] ?? '';
         $this->api_key = $settings['api_key'] ?? '';
         $this->cache_time = isset($settings['cache_time']) ? absint($settings['cache_time']) : 300; // Default 5 minutes
     }
 
     public function get_product_data($product_id, $sku = '') {
-        $transient_key = 'wc_external_api_data_' . md5($product_id . $sku);
+        $transient_key = 'woo_update_api_data_' . md5($product_id . $sku);
         $cached_data = get_transient($transient_key);
 
         if ($cached_data !== false) {

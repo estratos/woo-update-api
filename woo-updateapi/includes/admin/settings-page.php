@@ -19,10 +19,10 @@ class WC_External_API_Settings {
     public function add_settings_page() {
         add_submenu_page(
             'woocommerce',
-            __('External API Settings', 'wc-external-api'),
-            __('External API', 'wc-external-api'),
+            __('External API Settings', 'woo-update-api'),
+            __('External API', 'woo-update-api'),
             'manage_options',
-            'wc-external-api-settings',
+            'woo-update-api-settings',
             [$this, 'render_settings_page']
         );
     }
@@ -32,38 +32,38 @@ class WC_External_API_Settings {
 
         add_settings_section(
             'wc_external_api_main_section',
-            __('API Connection Settings', 'wc-external-api'),
+            __('API Connection Settings', 'woo-update-api'),
             [$this, 'render_section_info'],
-            'wc-external-api-settings'
+            'woo-update-api-settings'
         );
 
         add_settings_field(
             'api_url',
-            __('API Endpoint URL', 'wc-external-api'),
+            __('API Endpoint URL', 'woo-update-api'),
             [$this, 'render_api_url_field'],
-            'wc-external-api-settings',
+            'woo-update-api-settings',
             'wc_external_api_main_section'
         );
 
         add_settings_field(
             'api_key',
-            __('API Key', 'wc-external-api'),
+            __('API Key', 'woo-update-api'),
             [$this, 'render_api_key_field'],
-            'wc-external-api-settings',
+            'woo-update-api-settings',
             'wc_external_api_main_section'
         );
 
         add_settings_field(
             'cache_time',
-            __('Cache Time (seconds)', 'wc-external-api'),
+            __('Cache Time (seconds)', 'woo-update-api'),
             [$this, 'render_cache_time_field'],
-            'wc-external-api-settings',
+            'woo-update-api-settings',
             'wc_external_api_main_section'
         );
     }
 
     public function render_section_info() {
-        echo '<p>' . __('Configure the connection to your external API for real-time pricing and inventory updates.', 'wc-external-api') . '</p>';
+        echo '<p>' . __('Configure the connection to your external API for real-time pricing and inventory updates.', 'woo-update-api') . '</p>';
     }
 
     public function render_api_url_field() {
@@ -79,17 +79,17 @@ class WC_External_API_Settings {
     public function render_cache_time_field() {
         $settings = get_option('wc_external_api_settings');
         echo '<input type="number" name="wc_external_api_settings[cache_time]" value="' . esc_attr($settings['cache_time'] ?? '300') . '" min="60">';
-        echo '<p class="description">' . __('How long to cache API responses (in seconds).', 'wc-external-api') . '</p>';
+        echo '<p class="description">' . __('How long to cache API responses (in seconds).', 'woo-update-api') . '</p>';
     }
 
     public function render_settings_page() {
         ?>
         <div class="wrap">
-            <h1><?php _e('WooCommerce External API Settings', 'wc-external-api'); ?></h1>
+            <h1><?php _e('WooCommerce External API Settings', 'woo-update-api'); ?></h1>
             <form method="post" action="options.php">
                 <?php
                 settings_fields('wc_external_api_settings_group');
-                do_settings_sections('wc-external-api-settings');
+                do_settings_sections('woo-update-api-settings');
                 submit_button();
                 ?>
             </form>
