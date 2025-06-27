@@ -1,4 +1,5 @@
 <?php
+
 /**
  * Plugin Name: WooCommerce Update API
  * Plugin URI: https://yourwebsite.com/woo-update-api
@@ -23,7 +24,7 @@ define('WOO_UPDATE_API_PATH', plugin_dir_path(__FILE__));
 define('WOO_UPDATE_API_URL', plugin_dir_url(__FILE__));
 
 // Activation checks
-register_activation_hook(__FILE__, function() {
+register_activation_hook(__FILE__, function () {
     if (!class_exists('WooCommerce')) {
         deactivate_plugins(plugin_basename(__FILE__));
         wp_die(
@@ -36,13 +37,13 @@ register_activation_hook(__FILE__, function() {
 });
 
 // Initialize plugin
-add_action('plugins_loaded', function() {
+add_action('plugins_loaded', function () {
     // Load core files
     $core_files = [
         'includes/class-api-handler.php',
         'includes/class-price-updater.php'
     ];
-    
+
     foreach ($core_files as $file) {
         if (file_exists(WOO_UPDATE_API_PATH . $file)) {
             require_once WOO_UPDATE_API_PATH . $file;
@@ -57,7 +58,7 @@ add_action('plugins_loaded', function() {
     if (class_exists('Woo_Update_API\Price_Updater')) {
         Woo_Update_API\Price_Updater::instance();
     }
-    
+
     // Load admin files only in admin area
     if (is_admin()) {
         $admin_file = WOO_UPDATE_API_PATH . 'admin/class-settings.php';
@@ -65,13 +66,21 @@ add_action('plugins_loaded', function() {
             require_once $admin_file;
             if (class_exists('Woo_Update_API\Admin\Settings')) {
                 Woo_Update_API\Admin\Settings::instance();
+            } else {
+
+                wp_die(
+                    sprintf(
+                        __('%s Error loading classes!!.', 'woo-update-api'),
+                        'WooCommerce Update API'
+                    )
+                );
             }
         }
     }
 }, 20);
 
 // Load translations
-add_action('init', function() {
+add_action('init', function () {
     load_plugin_textdomain(
         'woo-update-api',
         false,
