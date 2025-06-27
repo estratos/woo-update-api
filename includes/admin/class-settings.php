@@ -44,6 +44,13 @@ class Settings
                 echo '<div class="notice notice-error"><p>Failed to add settings page to menu!</p></div>';
             });
         }
+        else {
+
+            add_action('admin_notices', function () {
+                echo '<div class="notice notice-success"><p>settings page added to menu!</p></div>';
+
+             });
+        }
 
         // Add this to verify the menu exists
         add_action('admin_menu', function () {
