@@ -47,7 +47,7 @@ add_action('plugins_loaded', function() {
     
     // Load admin files only in admin area
     if (is_admin()) {
-        require_once WOO_UPDATE_API_PATH . 'admin/class-settings.php';
+        require_once WOO_UPDATE_API_PATH . 'includes/admin/class-settings.php';
         Woo_Update_API\Admin\Settings::instance();
     }
 }, 20);
