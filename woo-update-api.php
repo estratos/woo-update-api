@@ -14,6 +14,41 @@
  * WC requires at least: 6.0
  * WC tested up to: 8.0
  */
+// Add this right after the plugin header comments
+add_action('admin_init', function() {
+    // Check if our settings class exists
+    if (!class_exists('Woo_Update_API\Admin\Settings')) {
+        error_log('Woo Update API: Settings class not found');
+        return;
+    }
+    
+    // Verify WooCommerce admin menu exists
+    global $submenu;
+    if (!isset($submenu['woocommerce'])) {
+        error_log('Woo Update API: WooCommerce admin menu not found');
+        add_action('admin_notices', function() {
+            echo '<div class="notice notice-error"><p>WooCommerce admin menu not detected!</p></div>';
+        });
+    }
+    
+    // Check if our menu was added
+    $menu_found = false;
+    if (isset($submenu['woocommerce'])) {
+        foreach ($submenu['woocommerce'] as $item) {
+            if (strpos($item[2], 'woo-update-api') !== false) {
+                $menu_found = true;
+                break;
+            }
+        }
+    }
+    
+    if (!$menu_found) {
+        error_log('Woo Update API: Menu item not found in WooCommerce submenu');
+        add_action('admin_notices', function() {
+            echo '<div class="notice notice-error"><p>Update API menu item not found!</p></div>';
+        });
+    }
+});
 
 defined('ABSPATH') || exit;
 
@@ -59,6 +94,41 @@ add_action('plugins_loaded', function () {
         Woo_Update_API\Price_Updater::instance();
     }
 
+    // Add this right after the plugin header comments
+    add_action('admin_init', function () {
+        // Check if our settings class exists
+        if (!class_exists('Woo_Update_API\Admin\Settings')) {
+            error_log('Woo Update API: Settings class not found');
+            return;
+        }
+
+        // Verify WooCommerce admin menu exists
+        global $submenu;
+        if (!isset($submenu['woocommerce'])) {
+            error_log('Woo Update API: WooCommerce admin menu not found');
+            add_action('admin_notices', function () {
+                echo '<div class="notice notice-error"><p>WooCommerce admin menu not detected!</p></div>';
+            });
+        }
+
+        // Check if our menu was added
+        $menu_found = false;
+        if (isset($submenu['woocommerce'])) {
+            foreach ($submenu['woocommerce'] as $item) {
+                if (strpos($item[2], 'woo-update-api') !== false) {
+                    $menu_found = true;
+                    break;
+                }
+            }
+        }
+
+        if (!$menu_found) {
+            error_log('Woo Update API: Menu item not found in WooCommerce submenu');
+            add_action('admin_notices', function () {
+                echo '<div class="notice notice-error"><p>Update API menu item not found!</p></div>';
+            });
+        }
+    });
     // Load admin files only in admin area
     if (is_admin()) {
         $admin_file = WOO_UPDATE_API_PATH . 'admin/class-settings.php';
