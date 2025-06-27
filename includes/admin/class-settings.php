@@ -1,28 +1,35 @@
 <?php
+
 namespace Woo_Update_API\Admin;
 
 defined('ABSPATH') || exit;
 
-class Settings {
+class Settings
+{
     private static $instance = null;
     private $settings_group = 'woo_update_api_settings_group';
     private $settings_name = 'woo_update_api_settings';
     private $menu_slug = 'woo-update-api';
 
-    public static function instance() {
+    public static function instance()
+    {
         if (is_null(self::$instance)) {
             self::$instance = new self();
         }
         return self::$instance;
     }
 
-    private function __construct() {
+    private function __construct()
+    {
         add_action('admin_menu', [$this, 'add_settings_page'], 20);
         add_action('admin_init', [$this, 'register_settings'], 20);
     }
 
-    public function add_settings_page() {
-        add_submenu_page(
+    
+
+    public function add_settings_page()
+    {
+        $hook_suffix = add_submenu_page(
             'woocommerce',
             __('Update API Settings', 'woo-update-api'),
             __('Update API', 'woo-update-api'),
@@ -30,9 +37,23 @@ class Settings {
             $this->menu_slug,
             [$this, 'render_settings_page']
         );
+
+        // Debug output - check if the page was added
+        if (!$hook_suffix) {
+            add_action('admin_notices', function () {
+                echo '<div class="notice notice-error"><p>Failed to add settings page to menu!</p></div>';
+            });
+        }
+
+        // Add this to verify the menu exists
+        add_action('admin_menu', function () {
+            global $submenu;
+            error_log('WooCommerce Submenu: ' . print_r($submenu['woocommerce'] ?? 'No WooCommerce submenu', true));
+        }, 999);
     }
 
-    public function register_settings() {
+    public function register_settings()
+    {
         register_setting(
             $this->settings_group,
             $this->settings_name,
@@ -71,34 +92,36 @@ class Settings {
         );
     }
 
-    public function sanitize_settings($input) {
+    public function sanitize_settings($input)
+    {
         $output = [];
-        
+
         if (isset($input['api_url'])) {
             $output['api_url'] = esc_url_raw(trim($input['api_url']));
         }
-        
+
         if (isset($input['api_key'])) {
             $output['api_key'] = sanitize_text_field(trim($input['api_key']));
         }
-        
+
         if (isset($input['cache_time'])) {
             $output['cache_time'] = absint($input['cache_time']);
             if ($output['cache_time'] < 60) {
                 $output['cache_time'] = 60;
             }
         }
-        
+
         return $output;
     }
 
-    public function render_settings_page() {
+    public function render_settings_page()
+    {
         if (!current_user_can('manage_options')) {
             return;
         }
-        
+
         settings_errors('woo_update_api_messages');
-        ?>
+?>
         <div class="wrap">
             <h1><?php echo esc_html(get_admin_page_title()); ?></h1>
             <form method="post" action="options.php">
@@ -109,26 +132,30 @@ class Settings {
                 ?>
             </form>
         </div>
-        <?php
+<?php
     }
 
-    public function render_section() {
+    public function render_section()
+    {
         echo '<p>' . esc_html__('Configure your external API connection details.', 'woo-update-api') . '</p>';
     }
 
-    public function render_api_url_field() {
+    public function render_api_url_field()
+    {
         $settings = get_option($this->settings_name, []);
         $value = $settings['api_url'] ?? '';
         echo '<input type="url" class="regular-text" name="' . esc_attr($this->settings_name) . '[api_url]" value="' . esc_attr($value) . '" required>';
     }
 
-    public function render_api_key_field() {
+    public function render_api_key_field()
+    {
         $settings = get_option($this->settings_name, []);
         $value = $settings['api_key'] ?? '';
         echo '<input type="password" class="regular-text" name="' . esc_attr($this->settings_name) . '[api_key]" value="' . esc_attr($value) . '" required>';
     }
 
-    public function render_cache_time_field() {
+    public function render_cache_time_field()
+    {
         $settings = get_option($this->settings_name, []);
         $value = $settings['cache_time'] ?? 300;
         echo '<input type="number" min="60" step="1" name="' . esc_attr($this->settings_name) . '[cache_time]" value="' . esc_attr($value) . '">';
