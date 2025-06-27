@@ -32,6 +32,9 @@ class Price_Updater {
         add_filter('woocommerce_product_get_stock_quantity', [$this, 'update_stock'], 99, 2);
         add_filter('woocommerce_variation_get_stock_quantity', [$this, 'update_stock'], 99, 2);
         add_filter('woocommerce_product_is_in_stock', [$this, 'update_stock_status'], 99, 2);
+        
+        // Admin notice for fallback mode
+        add_action('admin_notices', [$this, 'admin_notice_fallback_mode']);
     }
 
     public function update_price($price, $product) {
@@ -41,8 +44,13 @@ class Price_Updater {
 
         $api_data = $this->api_handler->get_product_data($product->get_id(), $product->get_sku());
 
-        if ($api_data && isset($api_data['price']) && is_numeric($api_data['price'])) {
-            return (float) $api_data['price'];
+        // If API is unavailable ($api_data === false), return original price
+        if ($api_data === false) {
+            return $price;
+        }
+
+        if ($api_data && isset($api_data['price'])) {
+            return floatval($api_data['price']);
         }
 
         return $price;
@@ -55,8 +63,13 @@ class Price_Updater {
 
         $api_data = $this->api_handler->get_product_data($product->get_id(), $product->get_sku());
 
-        if ($api_data && isset($api_data['stock_quantity']) && is_numeric($api_data['stock_quantity'])) {
-            return (int) $api_data['stock_quantity'];
+        // If API is unavailable ($api_data === false), return original quantity
+        if ($api_data === false) {
+            return $quantity;
+        }
+
+        if ($api_data && isset($api_data['stock_quantity'])) {
+            return intval($api_data['stock_quantity']);
         }
 
         return $quantity;
@@ -69,10 +82,25 @@ class Price_Updater {
 
         $api_data = $this->api_handler->get_product_data($product->get_id(), $product->get_sku());
 
+        // If API is unavailable ($api_data === false), return original status
+        if ($api_data === false) {
+            return $in_stock;
+        }
+
         if ($api_data && isset($api_data['in_stock'])) {
             return (bool) $api_data['in_stock'];
         }
 
         return $in_stock;
+    }
+
+    public function admin_notice_fallback_mode() {
+        if ($this->api_handler->is_in_fallback_mode()) {
+            ?>
+            <div class="notice notice-warning">
+                <p><?php _e('WooCommerce Update API is currently in fallback mode. The external API service is unavailable, so default WooCommerce pricing and inventory data is being used.', 'woo-update-api'); ?></p>
+            </div>
+            <?php
+        }
     }
 }
