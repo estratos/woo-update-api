@@ -79,7 +79,7 @@ class API_Handler {
         $this->deactivate_fallback_mode();
 
         set_transient($transient_key, $data, $this->cache_time);
-        return $data;
+        return $productData;
     }
 
     private function activate_fallback_mode() {
