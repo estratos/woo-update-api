@@ -60,7 +60,7 @@ class API_Handler {
 
         // API Request failed - activate fallback mode
         if (is_wp_error($response)) {
-            $this->activate_fallback_mode();
+            //$this->activate_fallback_mode();
             error_log('[Woo Update API] API request failed: ' . $response->get_error_message());
             return false;
         }
