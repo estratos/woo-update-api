@@ -67,7 +67,7 @@ class API_Handler {
 
         $body = wp_remote_retrieve_body($response);
         $data = json_decode($body, true);   
-        $productData = $data->product;
+        $productData = $data['product'];
 
         if (json_last_error() !== JSON_ERROR_NONE || !isset($data['success']) || !$data['success']) {
          //   $this->activate_fallback_mode();
