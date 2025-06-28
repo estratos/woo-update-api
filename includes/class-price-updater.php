@@ -44,7 +44,7 @@ class Price_Updater {
 
         $api_data = $this->api_handler->get_product_data($product->get_id(), $product->get_sku());
 
-        dd($api_data);
+        var_dump($api_data);
 
         // If API is unavailable ($api_data === false), return original price
         if ($api_data === false) {
