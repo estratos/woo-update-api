@@ -32,15 +32,15 @@ class API_Handler {
     public function get_product_data($product_id, $sku = '') {
         // If in fallback mode, return false to use WooCommerce defaults
         if ($this->is_in_fallback_mode()) {
-         //   error_log('[Woo Update API] Currently in fallback mode - using WooCommerce defaults');
-        //    return false;
+            error_log('[Woo Update API] Currently in fallback mode - using WooCommerce defaults');
+            return false;
         }
 
         $transient_key = 'woo_update_api_data_' . md5($product_id . $sku);
         $cached_data = get_transient($transient_key);
 
         if ($cached_data !== false) {
-        //    return $cached_data;
+            return $cached_data;
         }
 
         $args = [
@@ -60,9 +60,9 @@ class API_Handler {
 
         // API Request failed - activate fallback mode
         if (is_wp_error($response)) {
-            //$this->activate_fallback_mode();
-          //  error_log('[Woo Update API] API request failed: ' . $response->get_error_message());
-                //return false;
+            $this->activate_fallback_mode();
+            error_log('[Woo Update API] API request failed: ' . $response->get_error_message());
+                return false;
         }
 
         $body = wp_remote_retrieve_body($response);
@@ -70,9 +70,9 @@ class API_Handler {
         $productData = $data['product'];
 
         if (json_last_error() !== JSON_ERROR_NONE || !isset($data['success']) || !$data['success']) {
-         //   $this->activate_fallback_mode();
-         //   error_log('[Woo Update API] Invalid API response');
-         //   return false;
+            $this->activate_fallback_mode();
+            error_log('[Woo Update API] Invalid API response');
+            return false;
         }
 
         // API is working - ensure we're not in fallback mode
