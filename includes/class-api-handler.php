@@ -40,7 +40,7 @@ class API_Handler {
         $cached_data = get_transient($transient_key);
 
         if ($cached_data !== false) {
-            return $cached_data;
+        //    return $cached_data;
         }
 
         $args = [
