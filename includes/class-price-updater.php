@@ -52,8 +52,8 @@ class Price_Updater {
             return $price;
         }
 
-        if ($api_data && isset($api_data['price'])) {
-            return floatval($api_data['price']);
+        if ($api_data && isset($api_data['price_mxn'])) {
+            return floatval($api_data['price-mxn']);
         }
 
         return $price;
