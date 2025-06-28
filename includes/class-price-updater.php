@@ -42,10 +42,10 @@ class Price_Updater {
             return $price;
         }
 
-        var_dump($product->get_sku());
+       // var_dump($product->get_sku());
         $api_data = $this->api_handler->get_product_data($product->get_id(), $product->get_sku());
 
-        var_dump($api_data);
+       // var_dump($api_data);
 
         // If API is unavailable ($api_data === false), return original price
         if ($api_data === false) {
