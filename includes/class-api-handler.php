@@ -8,6 +8,7 @@ class API_Handler {
     private $api_url;
     private $api_key;
     private $cache_time;
+    private $reconnect_time;
     private $fallback_mode = false;
     private $fallback_start_time = 0;
 
@@ -23,6 +24,7 @@ class API_Handler {
         $this->api_url = $settings['api_url'] ?? '';
         $this->api_key = $settings['api_key'] ?? '';
         $this->cache_time = isset($settings['cache_time']) ? absint($settings['cache_time']) : 300;
+        $this->reconnect_time = isset($settings['reconnect_time']) ? absint($settings['reconnect_time']) : 3600;
         
         // Check if we're in fallback mode
         $this->fallback_mode = get_transient('woo_update_api_fallback_mode');
@@ -85,8 +87,8 @@ class API_Handler {
 
     private function activate_fallback_mode() {
         if (!$this->fallback_mode) {
-            set_transient('woo_update_api_fallback_mode', true, HOUR_IN_SECONDS);
-            set_transient('woo_update_api_fallback_start', time(), HOUR_IN_SECONDS);
+            set_transient('woo_update_api_fallback_mode', true, $this->reconnect_time);
+            set_transient('woo_update_api_fallback_start', time(), $this->reconnect_time);
             $this->fallback_mode = true;
             $this->fallback_start_time = time();
             

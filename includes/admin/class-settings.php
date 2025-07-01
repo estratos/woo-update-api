@@ -112,7 +112,7 @@ class Settings {
 
     public function render_reconnect_time_field() {
         $settings = get_option($this->settings_name);
-        echo '<input type="number" min="60" name="' . esc_attr($this->settings_name) . '[reconnect_time]" value="' . esc_attr($settings['reconnect_time'] ?? 3600) . '">';
+        echo '<input type="number" min="500" name="' . esc_attr($this->settings_name) . '[reconnect_time]" value="' . esc_attr($settings['reconnect_time'] ?? 3600) . '">';
         echo '<p class="description">' . esc_html__('Minimum 500 seconds recommended', 'woo-update-api') . '</p>';
     }
 
