@@ -63,6 +63,16 @@ class Settings {
             'woo-update-api',
             'woo_update_api_main'
         );
+
+        add_settings_field(
+            'reconnect_time',
+            __('Reconnect Time (seconds)', 'woo-update-api'),
+            [$this, 'render_cache_time_field'],
+            'woo-update-api',
+            'woo_update_api_main'
+        );
+
+
     }
 
     public function render_settings_page() {
