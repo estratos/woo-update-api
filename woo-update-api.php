@@ -5,8 +5,8 @@
  * Plugin URI: https://yourwebsite.com/woo-update-api
  * Description: Fetches real-time product pricing and inventory from external APIs.
  * Version: 1.0.0
- * Author: Your Name
- * Author URI: https://yourwebsite.com
+ * Author: Estratos
+ * Author URI: https://estratos.net
  * Text Domain: woo-update-api
  * Domain Path: /languages
  * Requires at least: 6.0
@@ -125,6 +125,38 @@ add_action('wp_ajax_wc_update_api_manual_refresh', function () {
         'message' => __('Product data refreshed successfully', 'woo-update-api'),
         'data' => $api_data
     ]);
+});
+
+// Add refresh option to quick edit
+add_action('quick_edit_custom_box', function($column_name, $post_type) {
+    if ($post_type === 'product' && $column_name === 'api_refresh') {
+        ?>
+        <fieldset class="inline-edit-col-right">
+            <div class="inline-edit-col">
+                <label class="alignleft">
+                    <input type="checkbox" name="refresh_api_data" value="1">
+                    <span class="checkbox-title"><?php _e('Refresh API data', 'woo-update-api'); ?></span>
+                </label>
+            </div>
+        </fieldset>
+        <?php
+    }
+}, 10, 2);
+
+// Handle quick edit refresh
+add_action('save_post_product', function($product_id) {
+    if (defined('DOING_AUTOSAVE') && DOING_AUTOSAVE) {
+        return;
+    }
+    
+    if (isset($_REQUEST['refresh_api_data'])) {
+        $product = wc_get_product($product_id);
+        if ($product) {
+            $transient_key = 'woo_update_api_data_' . md5($product_id . $product->get_sku());
+            delete_transient($transient_key);
+            update_post_meta($product_id, '_wc_update_api_last_refresh', current_time('mysql'));
+        }
+    }
 });
 
 // Load translations
