@@ -23,6 +23,55 @@ define('WOO_UPDATE_API_PLUGIN_FILE', __FILE__);
 define('WOO_UPDATE_API_PATH', plugin_dir_path(__FILE__));
 define('WOO_UPDATE_API_URL', plugin_dir_url(__FILE__));
 
+// Register AJAX handlers
+add_action('wp_ajax_wc_update_api_manual_refresh', 'handle_refresh_request');
+add_action('wp_ajax_nopriv_wc_update_api_manual_refresh', 'handle_no_permission');
+
+function handle_no_permission() {
+    wp_send_json_error(['message' => 'You must be logged in']);
+}
+
+function handle_refresh_request() {
+    // Verify nonce
+    if (!check_ajax_referer('wc_update_api_refresh', 'nonce', false)) {
+        wp_send_json_error(['message' => 'Invalid nonce'], 403);
+    }
+
+    // Check capabilities
+    if (!current_user_can('edit_products')) {
+        wp_send_json_error(['message' => 'Insufficient permissions'], 403);
+    }
+
+    // Process request
+    try {
+        $product_id = absint($_POST['product_id']);
+        // Your refresh logic here...
+        
+        wp_send_json_success([
+            'message' => 'Product data refreshed',
+            'last_refresh' => current_time('mysql')
+        ]);
+    } catch (Exception $e) {
+        wp_send_json_error(['message' => $e->getMessage()]);
+    }
+}
+
+// Enqueue scripts
+add_action('admin_enqueue_scripts', function() {
+    wp_enqueue_script(
+        'woo-update-api-admin',
+        plugins_url('assets/js/admin.js', __FILE__),
+        ['jquery'],
+        filemtime(plugin_dir_path(__FILE__) . 'assets/js/admin.js')
+    );
+    
+    wp_localize_script('woo-update-api-admin', 'wc_update_api_params', [
+        'ajax_url' => admin_url('admin-ajax.php'),
+        'nonce' => wp_create_nonce('wc_update_api_refresh')
+    ]);
+});
+
+
 // Activation checks
 register_activation_hook(__FILE__, function () {
     if (!class_exists('WooCommerce')) {
@@ -63,6 +112,8 @@ add_filter('plugin_action_links_' . plugin_basename(__FILE__), function ($links)
     array_unshift($links, $settings_link);
     return $links;
 });
+
+
 
 // Add refresh button to product edit page
 add_action('woocommerce_product_options_general_product_data', function () {
