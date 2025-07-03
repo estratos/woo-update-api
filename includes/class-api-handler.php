@@ -19,7 +19,7 @@ class API_Handler {
         return self::$instance;
     }
 
-    private function __construct() {
+    public function __construct() {
         $settings = get_option('woo_update_api_settings');
         $this->api_url = $settings['api_url'] ?? '';
         $this->api_key = $settings['api_key'] ?? '';

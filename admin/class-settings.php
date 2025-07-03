@@ -15,7 +15,7 @@ class Settings {
         return self::$instance;
     }
 
-    private function __construct() {
+    public function __construct() {
         add_action('admin_menu', [$this, 'add_settings_page']);
         add_action('admin_init', [$this, 'register_settings']);
     }

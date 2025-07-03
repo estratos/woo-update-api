@@ -14,7 +14,7 @@ class Price_Updater {
         return self::$instance;
     }
 
-    private function __construct() {
+    public function __construct() {
         $this->api_handler = API_Handler::instance();
         $this->init_hooks();
     }
