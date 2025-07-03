@@ -35,6 +35,20 @@ class Price_Updater {
         
         // Admin notice for fallback mode
         add_action('admin_notices', [$this, 'admin_notice_fallback_mode']);
+     
+        add_action('woocommerce_product_options_general_product_data', [$this, 'add_refresh_ui']);
+    }
+
+    public function add_refresh_ui() {
+        global $post;
+        
+        echo '<div class="wc-update-api-container">';
+        echo '<h3>' . __('API Data Refresh', 'woo-update-api') . '</h3>';
+        echo '<button class="button button-primary wc-update-api-refresh" data-product-id="' . esc_attr($post->ID) . '">';
+        echo '<span class="spinner"></span>';
+        echo __('Refresh Now', 'woo-update-api');
+        echo '</button>';
+        echo '</div>';
     }
 
     public function update_price($price, $product) {
@@ -106,4 +120,6 @@ class Price_Updater {
             <?php
         }
     }
+
+    
 }

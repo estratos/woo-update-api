@@ -1,82 +1,57 @@
 jQuery(document).ready(function($) {
-    $(document).on('click', '#wc-update-api-refresh', function(e) {
+    $(document).on('click', '.wc-update-api-refresh', function(e) {
         e.preventDefault();
         
         var $button = $(this);
-        var productId = $button.data('product-id');
-        var $container = $button.closest('.options_group');
+        var $container = $button.closest('.wc-update-api-container');
         
-        // Clear previous messages
+        // Clear previous notices
         $container.find('.notice').remove();
         
         // Show loading state
-        $button.prop('disabled', true).append('<span class="spinner is-active" style="float:none;margin-left:5px;"></span>');
-        
-        // Get AJAX URL and nonce from localized data
-        var ajaxData = typeof wc_update_api_params !== 'undefined' ? wc_update_api_params : {
-            ajax_url: ajaxurl,
-            nonce: $button.closest('form').find('#_wpnonce').val()
-        };
+        $button.prop('disabled', true)
+               .find('.spinner')
+               .addClass('is-active');
         
         $.ajax({
-            url: ajaxData.ajax_url,
+            url: wc_update_api.ajax_url,
             type: 'POST',
-            dataType: 'json',
             data: {
                 action: 'wc_update_api_manual_refresh',
-                product_id: productId,
-                security: ajaxData.nonce
+                product_id: $button.data('product-id'),
+                security: wc_update_api.nonce
             },
+            dataType: 'json',
             success: function(response) {
                 if (response.success) {
                     $container.prepend(
-                        '<div class="notice notice-success is-dismissible"><p>' + 
-                        response.data.message + 
+                        '<div class="notice notice-success"><p>' + 
+                        (response.data.message || wc_update_api.i18n.success) + 
                         '</p></div>'
                     );
-                    
-                    if (response.data.last_refresh) {
-                        $container.find('.description').text(
-                            wc_update_api_params.i18n_last_refresh + ' ' + 
-                            response.data.last_refresh
-                        );
-                    }
                 } else {
-                    showError($container, response.data?.message || 'Unknown error occurred');
+                    showError(response.data?.message || wc_update_api.i18n.error);
                 }
             },
             error: function(xhr) {
-                var errorMessage = 'AJAX request failed';
-                
-                if (xhr.status === 403) {
-                    errorMessage = 'Permission denied (403 Forbidden)';
-                } else if (xhr.status === 400) {
-                    errorMessage = 'Bad request (400)';
-                }
-                
-                if (xhr.responseJSON && xhr.responseJSON.data && xhr.responseJSON.data.message) {
-                    errorMessage = xhr.responseJSON.data.message;
-                }
-                
-                showError($container, errorMessage);
-                
-                console.error('AJAX Error:', {
-                    status: xhr.status,
-                    statusText: xhr.statusText,
-                    response: xhr.responseText
-                });
+                var message = xhr.responseJSON?.data?.message || 
+                             wc_update_api.i18n.error;
+                showError(message);
+                console.error('AJAX Error:', xhr.responseJSON || xhr.statusText);
             },
             complete: function() {
-                $button.prop('disabled', false).find('.spinner').remove();
+                $button.prop('disabled', false)
+                       .find('.spinner')
+                       .removeClass('is-active');
             }
         });
+        
+        function showError(message) {
+            $container.prepend(
+                '<div class="notice notice-error"><p>' + 
+                message + 
+                '</p></div>'
+            );
+        }
     });
-    
-    function showError($container, message) {
-        $container.prepend(
-            '<div class="notice notice-error is-dismissible"><p>' + 
-            message + 
-            '</p></div>'
-        );
-    }
 });
