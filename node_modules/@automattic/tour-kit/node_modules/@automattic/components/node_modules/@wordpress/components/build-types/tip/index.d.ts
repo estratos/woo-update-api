@@ -1,7 +1,0 @@
-/**
- * Internal dependencies
- */
-import type { TipProps } from './types';
-export declare function Tip(props: TipProps): import("react").JSX.Element;
-export default Tip;
-//# sourceMappingURL=index.d.ts.map

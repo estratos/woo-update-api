@@ -1,7 +1,0 @@
-/**
- * Internal dependencies
- */
-import type { WordPressComponentProps } from '../context';
-import type { BoxControlIconProps } from './types';
-export default function BoxControlIcon({ size, side, sides, ...props }: WordPressComponentProps<BoxControlIconProps, 'span'>): import("react").JSX.Element;
-//# sourceMappingURL=icon.d.ts.map

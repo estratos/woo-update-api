@@ -1,8 +1,0 @@
-/**
- * Internal dependencies
- */
-import type { WordPressComponentProps } from '../../context';
-import type { ToolbarGroupContainerProps } from './types';
-declare const ToolbarGroupContainer: ({ className, children, ...props }: WordPressComponentProps<ToolbarGroupContainerProps, "div", false>) => import("react").JSX.Element;
-export default ToolbarGroupContainer;
-//# sourceMappingURL=toolbar-group-container.d.ts.map

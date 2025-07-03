@@ -1,7 +1,0 @@
-import type { NavigationGroupProps } from '../types';
-/**
- * @deprecated Use `Navigator` instead.
- */
-export declare function NavigationGroup({ children, className, title, }: NavigationGroupProps): import("react").JSX.Element;
-export default NavigationGroup;
-//# sourceMappingURL=index.d.ts.map

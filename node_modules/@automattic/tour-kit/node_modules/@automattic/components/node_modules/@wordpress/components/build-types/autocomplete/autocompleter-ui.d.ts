@@ -1,3 +1,0 @@
-import type { AutocompleterUIProps, WPCompleter } from './types';
-export declare function getAutoCompleterUI(autocompleter: WPCompleter): ({ filterValue, instanceId, listBoxId, className, selectedIndex, onChangeOptions, onSelect, onReset, reset, contentRef, }: AutocompleterUIProps) => import("react").JSX.Element | null;
-//# sourceMappingURL=autocompleter-ui.d.ts.map

@@ -1,6 +1,0 @@
-/**
- * Internal dependencies
- */
-import type { FocusableIframeProps } from './types';
-export default function FocusableIframe({ iframeRef, ...props }: FocusableIframeProps): import("react").JSX.Element;
-//# sourceMappingURL=index.d.ts.map

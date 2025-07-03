@@ -1,8 +1,0 @@
-/**
- * Internal dependencies
- */
-import Button from '../button';
-export default function LinkedButton({ isLinked, ...props }: {
-    isLinked?: boolean;
-} & React.ComponentProps<typeof Button>): import("react").JSX.Element;
-//# sourceMappingURL=linked-button.d.ts.map

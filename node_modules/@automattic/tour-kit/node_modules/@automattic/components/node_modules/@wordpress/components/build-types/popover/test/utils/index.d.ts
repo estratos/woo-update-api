@@ -1,6 +1,0 @@
-/**
- * Internal dependencies
- */
-import Popover from '../..';
-export declare const PopoverInsideIframeRenderedInExternalSlot: (props: React.ComponentProps<typeof Popover>) => import("react").JSX.Element;
-//# sourceMappingURL=index.d.ts.map

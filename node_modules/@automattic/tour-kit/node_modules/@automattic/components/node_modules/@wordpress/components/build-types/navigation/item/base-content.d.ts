@@ -1,3 +1,0 @@
-import type { NavigationItemBaseContentProps } from '../types';
-export default function NavigationItemBaseContent(props: NavigationItemBaseContentProps): import("react").JSX.Element;
-//# sourceMappingURL=base-content.d.ts.map

@@ -1,7 +1,0 @@
-import type { NavigationMenuProps } from '../types';
-/**
- * @deprecated Use `Navigator` instead.
- */
-export declare function NavigationMenu(props: NavigationMenuProps): import("react").JSX.Element;
-export default NavigationMenu;
-//# sourceMappingURL=index.d.ts.map

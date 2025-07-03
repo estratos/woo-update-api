@@ -1,6 +1,0 @@
-/**
- * Internal dependencies
- */
-import type { OptionGroupProps } from './types';
-export declare function OptionGroup({ className, options, ...additionalProps }: OptionGroupProps): import("react").JSX.Element;
-//# sourceMappingURL=circular-option-picker-option-group.d.ts.map
