@@ -59,16 +59,19 @@ class Price_Updater {
        // var_dump($product->get_sku());
         $api_data = $this->api_handler->get_product_data($product->get_id(), $product->get_sku());
 
-       // var_dump($api_data);
-
+       
         // If API is unavailable ($api_data === false), return original price
         if ($api_data === false) {
             return $price;
         }
 
-        if ($api_data && isset($api_data['price_mxn'])) {
-            return floatval($api_data['price_mxn']);
+        if ($api_data && isset($api_data['product']['price_mxn'])) {
+            return floatval($api_data['product']['price_mxn']);
         }
+
+       // var_dump($api_data['product']['price_mxn']);
+       /// var_dump($api_data);
+
 
         return $price;
     }
@@ -85,8 +88,8 @@ class Price_Updater {
             return $quantity;
         }
 
-        if ($api_data && isset($api_data['stock_quantity'])) {
-            return intval($api_data['stock_quantity']);
+        if ($api_data && isset($api_data['product']['stock_quantity'])) {
+            return intval($api_data['product']['stock_quantity']);
         }
 
         return $quantity;

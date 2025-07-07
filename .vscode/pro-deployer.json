@@ -1,0 +1,41 @@
+{
+	"enableStatusBarItem": true,
+	"enableQuickPick": true,
+	"uploadOnSave": false,
+	"autoDelete": false,
+	"checkGitignore": false,
+	"activeTargets": [
+		"My SFTP"
+	],
+	"concurrency": 5,
+	"ignore": [
+		".git/**/*",
+		".vscode/**/*"
+	],
+	"include": [],
+	"targets": [
+		{
+			"name": "My FTP",
+			"type": "ftp",
+			"host": "localhost",
+			"port": 21,
+			"user": "admin",
+			"password": "123456",
+			"dir": "/",
+			"baseDir": "/",
+			"transferDataType": "binary"
+		},
+		{
+			"name": "My SFTP",
+			"type": "sftp",
+			"host": "estratos.net",
+			"port": 22,
+			"user": "estratos",
+			"password": "Ftx45700$",
+			"dir": "web/storedev.estratos.net/public_html/wp-content/plugins/woo-update-api/",
+			
+			"privateKey": null,
+			"passphrase": null
+		}
+	]
+}

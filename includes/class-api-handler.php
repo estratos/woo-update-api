@@ -11,6 +11,8 @@ class API_Handler {
     private $reconnect_time;
     private $fallback_mode = false;
     private $fallback_start_time = 0;
+    private $error_manager;
+
 
     public static function instance() {
         if (is_null(self::$instance)) {
@@ -29,10 +31,15 @@ class API_Handler {
         // Check if we're in fallback mode
         $this->fallback_mode = get_transient('woo_update_api_fallback_mode');
         $this->fallback_start_time = get_transient('woo_update_api_fallback_start');
+        /// error manager
+        // In __construct():
+        // $this->error_manager = new WC_Update_API_Error_Manager();
     }
 
     public function get_product_data($product_id, $sku = '') {
         // If in fallback mode, return false to use WooCommerce defaults
+        // temporaly disable fallabacck
+       // $this->deactivate_fallback_mode();
         if ($this->is_in_fallback_mode()) {
             error_log('[Woo Update API] Currently in fallback mode - using WooCommerce defaults');
             return false;
@@ -59,6 +66,7 @@ class API_Handler {
         ], $this->api_url);
 
         $response = wp_safe_remote_get($endpoint, $args);
+       
 
         // API Request failed - activate fallback mode
         if (is_wp_error($response)) {
@@ -85,6 +93,33 @@ class API_Handler {
         return $productData;
     }
 
+    // includes/class-wc-update-api-handler.php
+// Add these properties at the top:
+protected $error_manager;
+
+
+
+// Modify your API request method:
+public function make_api_request($endpoint, $args = []) {
+    if ($this->error_manager->is_fallback_active()) {
+        return $this->get_cached_data();
+    }
+
+    try {
+        $response = parent::make_api_request($endpoint, $args);
+        $this->error_manager->reset_errors();
+        return $response;
+    } catch (Exception $e) {
+        $error_count = $this->error_manager->increment_error();
+        error_log("API Error #{$error_count}: " . $e->getMessage());
+        
+        if ($error_count < WC_Update_API_Error_Manager::ERROR_THRESHOLD) {
+            return $this->get_cached_data();
+        }
+        
+        throw new Exception(__('API unavailable - using fallback mode', 'woo-update-api'));
+    }
+}
     private function activate_fallback_mode() {
         if (!$this->fallback_mode) {
             set_transient('woo_update_api_fallback_mode', true, $this->reconnect_time);
