@@ -3,15 +3,14 @@
  * Plugin Name: WooCommerce Update API
  * Plugin URI: https://github.com/estratos/woo-update-api
  * Description: Fetches real-time product pricing and inventory from external APIs with manual refresh capability.
- * Version: 1.0.0
- * Author: Your Name
- * Author URI: https://yourwebsite.com
+ * Version: 1.1.1
+ * Author: Estratos
+ * Author URI: https://estratos.net
  * Text Domain: woo-update-api
  * Domain Path: /languages
- * Requires at least: 5.6
- * Requires PHP: 7.4
- * WC requires at least: 4.0
- * WC tested up to: 8.0
+ * Requires at least: 8.0
+ * Requires PHP: 8.0
+ * WC tested up to: 8.2
  */
 
 defined('ABSPATH') || exit;
