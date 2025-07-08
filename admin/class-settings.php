@@ -211,10 +211,28 @@ public function display_api_status() {
 public function sanitize_settings($input) {
     $output = array();
     
-    // Existing sanitization
+    // Sanitize API Key
+    if (isset($input['api_key'])) {
+        $output['api_key'] = sanitize_text_field($input['api_key']);
+    }
     
-    // Add the new field
+    // Sanitize API URL
+    if (isset($input['api_url'])) {
+        $output['api_url'] = esc_url_raw($input['api_url']);
+    }
+    
+    // Sanitize Checkbox
     $output['disable_fallback'] = isset($input['disable_fallback']) ? 'yes' : 'no';
+    
+    // You can add validation here
+    if (empty($output['api_key'])) {
+        add_settings_error(
+            'woo_update_api_messages',
+            'woo_update_api_message',
+            __('API Key is required', 'woo-update-api'),
+            'error'
+        );
+    }
     
     return $output;
 }

@@ -1,0 +1,1 @@
+xgettext --from-code=UTF-8 -o languages/woo-update-api.pot -k__ -k_e -k_n:1,2 -k_x:1,2c -k_ex:1,2c -k_esc_attr__ -k_esc_attr_e -k_esc_attr_x:1,2c -k_esc_html__ -k_esc_html_e -k_esc_html_x:1,2c *.php

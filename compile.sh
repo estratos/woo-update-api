@@ -1,0 +1,1 @@
+msgfmt languages/woo-update-api-es_ES.po -o languages/woo-update-api-es_ES.mo

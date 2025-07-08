@@ -138,6 +138,18 @@ class API_Handler
         return json_decode(wp_remote_retrieve_body($response), true);
     }
 
+    /**
+     * Handle API errors (previously missing method)
+     */
+    private function handle_api_error(\Exception $e) {
+        $error_count = $this->error_manager->increment_error();
+        error_log(sprintf(
+            '[Woo Update API] Error #%d: %s',
+            $error_count,
+            $e->getMessage()
+        ));
+    }
+
     private function should_use_fallback()
     {
         return $this->error_manager->is_fallback_active() ||
@@ -149,9 +161,6 @@ class API_Handler
             $this->get_cached_data() : 
             false;
     }
-
-
-
 
 
     private function activate_fallback_mode()
