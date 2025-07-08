@@ -1,6 +1,8 @@
 <?php
 namespace Woo_Update_API\Admin;
 
+use Woo_Update_API\API_Error_Manager;
+
 defined('ABSPATH') || exit;
 
 class Settings {
@@ -18,6 +20,8 @@ class Settings {
     public function __construct() {
         add_action('admin_menu', [$this, 'add_settings_page']);
         add_action('admin_init', [$this, 'register_settings']);
+
+
     }
 
     public function add_settings_page() {
@@ -32,6 +36,19 @@ class Settings {
 
     public function register_settings() {
         register_setting($this->settings_group, $this->settings_name);
+
+        register_setting(
+        'woo_update_api_settings_group',
+        'woo_update_api_settings',
+        array(
+            'type' => 'array',
+            'sanitize_callback' => array($this, 'sanitize_settings'),
+            'default' => array(
+                // Add the new default
+                'disable_fallback' => 'no'
+            )
+        )
+    );
 
         add_settings_section(
             'woo_update_api_main',
@@ -73,7 +90,35 @@ class Settings {
         );
 
 
+        // Add the new settings section if needed
+    add_settings_section(
+        'woo_update_api_advanced',
+        __('Advanced Settings', 'woo-update-api'),
+        null,
+        'woo-update-api'
+    );
+    
+        // Add the new fields
+    add_settings_field(
+        'disable_fallback',
+        __('Fallback Behavior', 'woo-update-api'),
+        array($this, 'render_disable_fallback_field'),
+        'woo-update-api',
+        'woo_update_api_advanced'
+    );
+    
+    add_settings_field(
+        'reconnect_button',
+        __('API Connection', 'woo-update-api'),
+        array($this, 'render_reconnect_button'),
+        'woo-update-api',
+        'woo_update_api_advanced'
+    );
+
+
     }
+
+    
 
     public function render_settings_page() {
         ?>
@@ -116,5 +161,62 @@ class Settings {
         echo '<p class="description">' . esc_html__('Minimum 500 seconds recommended', 'woo-update-api') . '</p>';
     }
 
+
+    public function render_disable_fallback_field() {
+    $settings = get_option('woo_update_api_settings');
+    $value = $settings['disable_fallback'] ?? 'no';
+    ?>
+    <label>
+        <input type="checkbox" name="woo_update_api_settings[disable_fallback]" value="yes" <?php checked('yes', $value); ?>>
+        <?php _e('Disable fallback to cached data', 'woo-update-api'); ?>
+    </label>
+    <p class="description">
+        <?php _e('When enabled, errors will show instead of cached data when API fails', 'woo-update-api'); ?>
+    </p>
+    <?php
+}
+
+public function render_reconnect_button() {
+    ?>
+    <button type="button" id="woo_update_api_reconnect" class="button button-secondary">
+        <?php _e('Reconnect Now', 'woo-update-api'); ?>
+    </button>
+    <p class="description">
+        <?php _e('Force reconnect to API and reset error counter', 'woo-update-api'); ?>
+    </p>
+    <div id="woo_update_api_status" style="margin-top: 10px;">
+        <?php $this->display_api_status(); ?>
+    </div>
+    <?php
+}
+
+public function display_api_status() {
+    $error_manager = new API_Error_Manager;
+    $status = $error_manager->get_status();
+    ?>
+    <div class="notice notice-<?php echo $status['fallback_active'] ? 'warning' : 'success'; ?>" style="display: inline-block; padding: 5px 10px;">
+        <p>
+            <?php if ($status['fallback_active']): ?>
+                <strong><?php _e('Fallback Active', 'woo-update-api'); ?></strong> -
+                <?php printf(__('%d of %d errors', 'woo-update-api'), $status['errors'], $status['threshold']); ?>
+            <?php else: ?>
+                <strong><?php _e('API Connected', 'woo-update-api'); ?></strong> -
+                <?php printf(__('%d recent errors', 'woo-update-api'), $status['errors']); ?>
+            <?php endif; ?>
+        </p>
+    </div>
+    <?php
+}
+
+public function sanitize_settings($input) {
+    $output = array();
+    
+    // Existing sanitization
+    
+    // Add the new field
+    $output['disable_fallback'] = isset($input['disable_fallback']) ? 'yes' : 'no';
+    
+    return $output;
+}
 
 }
