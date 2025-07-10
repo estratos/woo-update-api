@@ -124,5 +124,38 @@ class Price_Updater {
         }
     }
 
+    public function ajax_refresh_product() {
+    check_ajax_referer('woo_update_api_nonce', 'security');
+
+    if (!current_user_can('edit_products')) {
+        wp_send_json_error(['message' => __('Permission denied', 'woo-update-api')], 403);
+    }
+
+    $product_id = isset($_POST['product_id']) ? absint($_POST['product_id']) : 0;
+    
+    if (!$product_id) {
+        wp_send_json_error(['message' => __('Invalid product ID', 'woo-update-api')], 400);
+    }
+
+    try {
+        $api_handler = new API_Handler();
+        $product_data = $api_handler->get_product_data($product_id);
+        
+        // Update product meta
+        update_post_meta($product_id, '_api_price', $product_data['price']);
+        update_post_meta($product_id, '_api_stock', $product_data['stock']);
+        
+        wp_send_json_success([
+            'message' => __('Product data refreshed successfully!', 'woo-update-api'),
+            'price' => wc_price($product_data['price']),
+            'stock' => $product_data['stock']
+        ]);
+    } catch (\Exception $e) {
+        wp_send_json_error([
+            'message' => __('Refresh failed: ', 'woo-update-api') . $e->getMessage()
+        ], 500);
+    }
+}
+
     
 }
