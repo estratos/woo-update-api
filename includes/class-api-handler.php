@@ -120,6 +120,17 @@ class API_Handler
         }
     }
 
+    /**
+     * Get cached data - previously missing method
+     */
+    protected function get_cached_data() {
+        $cached = get_transient($this->cache_key);
+        if (false === $cached) {
+            return []; // Return empty array if no cache exists
+        }
+        return $cached;
+    }
+
     private function execute_api_call($endpoint, $args)
     {
               
