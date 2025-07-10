@@ -41,6 +41,7 @@ class API_Handler
         /// error manager
         // In __construct():
         $this->error_manager = new API_Error_Manager();
+        add_action('wp_ajax_woo_update_api_get_status', [$this, 'get_status']);
     }
 
     public function get_product_data($product_id, $sku = '')
