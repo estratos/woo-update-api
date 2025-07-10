@@ -15,8 +15,9 @@ class API_Handler
     private $reconnect_time;
     private $fallback_mode = false;
     private $fallback_start_time = 0;
-
+    protected $settings;
     protected $error_manager;
+    protected $cache_key = 'woo_update_api_cached_data';
 
     public static function instance()
     {
@@ -129,6 +130,17 @@ class API_Handler
             return []; // Return empty array if no cache exists
         }
         return $cached;
+    }
+
+    /**
+     * Cache API data
+     */
+    protected function cache_data($data) {
+        set_transient(
+            $this->cache_key,
+            $data,
+            apply_filters('woo_update_api_cache_expiration', HOUR_IN_SECONDS)
+        );
     }
 
     private function execute_api_call($endpoint, $args)

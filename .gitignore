@@ -705,3 +705,4 @@
 /web.config.txt
 /node_modules/*
 /vendor/*
+/.vscode/*

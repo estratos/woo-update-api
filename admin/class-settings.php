@@ -20,8 +20,18 @@ class Settings {
     public function __construct() {
         add_action('admin_menu', [$this, 'add_settings_page']);
         add_action('admin_init', [$this, 'register_settings']);
+        // Clear cache on settings update
+        add_action('update_option_woo_update_api_settings', [$this, 'clear_api_cache']);
 
 
+    }
+
+    public function clear_api_cache() {
+        delete_transient('woo_update_api_cached_data');
+        
+        // If using multiple cache keys
+        delete_transient('woo_update_api_product_cache');
+        delete_transient('woo_update_api_inventory_cache');
     }
 
     public function add_settings_page() {
