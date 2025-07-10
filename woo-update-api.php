@@ -14,6 +14,8 @@
  * WC tested up to: 8.2
  */
 
+use Woo_Update_API\API_Error_Manager;
+
 defined('ABSPATH') || exit;
 
 // Define plugin constants
@@ -59,6 +61,26 @@ class Woo_Update_API
         // Initialize plugin
         add_action('plugins_loaded', [$this, 'init'], 20);
         add_action('wp_ajax_wc_update_api_reconnect', [$this, 'ajax_reconnect']);
+        // In your main plugin file:
+        add_action('wp_ajax_woo_update_api_get_status', function () {
+            check_ajax_referer('woo_update_api_nonce', 'security');
+
+            if (!current_user_can('manage_options')) {
+                wp_send_json_error(['message' => __('Permission denied', 'woo-update-api')], 403);
+            }
+
+            $error_manager = new API_Error_Manager();
+            $status = $error_manager->get_status();
+
+            ob_start();
+            include plugin_dir_path(__FILE__) . 'admin/partials/status-indicator.php';
+            $status_html = ob_get_clean();
+
+            wp_send_json_success([
+                'status_html' => $status_html,
+                'status' => $status
+            ]);
+        });
     }
 
 
@@ -140,7 +162,7 @@ class Woo_Update_API
         );
 
         // Localize script data
-       
+
 
         ////// new localization
         wp_localize_script('woo-update-api-admin', 'woo_update_api', [
