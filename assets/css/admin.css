@@ -1,0 +1,32 @@
+.woo-api-status {
+    padding: 12px;
+    border-left: 4px solid #ddd;
+    margin: 5px 0 15px;
+    display: flex;
+    align-items: center;
+}
+
+.woo-api-status .dashicons {
+    font-size: 30px;
+    width: 30px;
+    height: 30px;
+    margin-right: 15px;
+}
+
+.woo-api-status.excellent {
+    border-left-color: #46b450;
+}
+.woo-api-status.good {
+    border-left-color: #00a0d2;
+}
+.woo-api-status.warning {
+    border-left-color: #ffb900;
+}
+.woo-api-status.critical {
+    border-left-color: #dc3232;
+}
+
+.refresh-api-data + .spinner {
+    float: none;
+    margin-left: 10px;
+}
