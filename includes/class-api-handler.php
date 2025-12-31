@@ -94,72 +94,94 @@ class API_Handler
 
     private function make_api_request($product_id, $sku)
     {
-        // Construir URL con parámetros
+        // Verificar que la URL no tenga parámetros duplicados
+        $base_url = rtrim($this->api_url, '?&');
+
+        // Construir parámetros de query
         $query_args = [
             'sku' => $sku,
-            'api_key' => $this->api_key  // API key como query parameter
+            'api_key' => $this->api_key
         ];
 
-        // Agregar product_id solo si está presente
-        if (!empty($product_id)) {
+        if (!empty($product_id) && $product_id > 0) {
             $query_args['product_id'] = $product_id;
         }
 
-        // Agregar timestamp para evitar cache
-        $query_args['timestamp'] = time();
+        // Usar add_query_arg correctamente
+        $endpoint = add_query_arg($query_args, $base_url);
 
-        $endpoint = add_query_arg($query_args, $this->api_url);
+        // DEBUG: Ver la URL exacta que se está enviando
+        error_log('[Woo Update API DEBUG] ========== START REQUEST ==========');
+        error_log('[Woo Update API DEBUG] Base API URL: ' . $this->api_url);
+        error_log('[Woo Update API DEBUG] Constructed URL: ' . $endpoint);
+        error_log('[Woo Update API DEBUG] SKU: ' . $sku);
+        error_log('[Woo Update API DEBUG] Product ID: ' . $product_id);
+        error_log('[Woo Update API DEBUG] API Key length: ' . strlen($this->api_key));
+        error_log('[Woo Update API DEBUG] API Key first 20 chars: ' . substr($this->api_key, 0, 20));
 
         $args = [
             'headers' => [
                 'Content-Type' => 'application/json',
-                'Accept' => 'application/json'
+                'Accept' => 'application/json',
+                'User-Agent' => 'WooCommerce-Update-API/1.0'
             ],
             'timeout' => 15,
-            'sslverify' => apply_filters('woo_update_api_sslverify', true)
+            'sslverify' => true,
+            'httpversion' => '1.1',
+            'redirection' => 5
         ];
 
-        // Debug: registrar la URL (solo en modo desarrollo)
-        if (defined('WP_DEBUG') && WP_DEBUG) {
-            error_log('[Woo Update API] Request URL: ' . $endpoint);
-        }
+        error_log('[Woo Update API DEBUG] Request args: ' . print_r($args, true));
 
+        // Hacer la solicitud
         $response = wp_safe_remote_get($endpoint, $args);
 
         if (is_wp_error($response)) {
+            error_log('[Woo Update API DEBUG] WP_Error: ' . $response->get_error_message());
+            error_log('[Woo Update API DEBUG] WP_Error code: ' . $response->get_error_code());
             throw new Exception($response->get_error_message());
         }
 
         $status_code = wp_remote_retrieve_response_code($response);
+        $response_body = wp_remote_retrieve_body($response);
+        $response_headers = wp_remote_retrieve_headers($response);
 
-        // Registrar respuesta para debugging
-        if (defined('WP_DEBUG') && WP_DEBUG) {
-            error_log('[Woo Update API] Response Status: ' . $status_code);
-        }
+        error_log('[Woo Update API DEBUG] ========== RESPONSE ==========');
+        error_log('[Woo Update API DEBUG] Status Code: ' . $status_code);
+        error_log('[Woo Update API DEBUG] Response Headers: ' . print_r($response_headers, true));
+        error_log('[Woo Update API DEBUG] Response Body (first 1000 chars): ' . substr($response_body, 0, 1000));
 
         if ($status_code !== 200) {
+            error_log('[Woo Update API DEBUG] ERROR - Full response: ' . $response_body);
             throw new Exception(sprintf(__('API returned status: %d', 'woo-update-api'), $status_code));
         }
 
-        $body = wp_remote_retrieve_body($response);
-        $data = json_decode($body, true);
+        $data = json_decode($response_body, true);
 
         if (json_last_error() !== JSON_ERROR_NONE) {
+            error_log('[Woo Update API DEBUG] JSON Parse Error: ' . json_last_error_msg());
+            error_log('[Woo Update API DEBUG] Raw response that failed to parse: ' . $response_body);
             throw new Exception(__('Invalid JSON response from API', 'woo-update-api'));
         }
+
+        error_log('[Woo Update API DEBUG] JSON decoded successfully');
+        error_log('[Woo Update API DEBUG] Data structure: ' . print_r($data, true));
 
         // Check for API-specific error indicators
         if (isset($data['error']) || (isset($data['success']) && $data['success'] === false)) {
             $error_msg = $data['message'] ?? __('API returned an error', 'woo-update-api');
+            error_log('[Woo Update API DEBUG] API returned error: ' . $error_msg);
             throw new Exception($error_msg);
         }
 
-        // Return product data - handle different response structures
+        // Return product data
         if (isset($data['product'])) {
+            error_log('[Woo Update API DEBUG] Returning product data');
+            error_log('[Woo Update API DEBUG] Product data keys: ' . implode(', ', array_keys($data['product'])));
             return $data['product'];
         }
 
-        // If no 'product' key, assume the entire response is product data
+        error_log('[Woo Update API DEBUG] No product key found, returning full response');
         return $data;
     }
 
