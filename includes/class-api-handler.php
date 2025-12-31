@@ -1,5 +1,4 @@
 <?php
-
 namespace Woo_Update_API;
 
 use Exception;
@@ -15,9 +14,7 @@ class API_Handler
     private $reconnect_time;
     private $fallback_mode = false;
     private $fallback_start_time = 0;
-    protected $settings;
-    protected $error_manager;
-    protected $cache_key = 'woo_update_api_cached_data';
+    private $error_manager;
 
     public static function instance()
     {
@@ -29,126 +26,90 @@ class API_Handler
 
     public function __construct()
     {
-        $settings = get_option('woo_update_api_settings');
+        $settings = get_option('woo_update_api_settings', []);
         $this->api_url = $settings['api_url'] ?? '';
         $this->api_key = $settings['api_key'] ?? '';
         $this->cache_time = isset($settings['cache_time']) ? absint($settings['cache_time']) : 300;
         $this->reconnect_time = isset($settings['reconnect_time']) ? absint($settings['reconnect_time']) : 3600;
 
-        // Check if we're in fallback mode
-        $this->fallback_mode = get_transient('woo_update_api_fallback_mode');
-        $this->fallback_start_time = get_transient('woo_update_api_fallback_start');
-        /// error manager
-        // In __construct():
-        $this->error_manager = new API_Error_Manager();
-        add_action('wp_ajax_woo_update_api_get_status', [$this, 'get_status']);
+        $this->error_manager = API_Error_Manager::instance();
+
+        // Check fallback mode from error manager
+        $this->fallback_mode = $this->error_manager->is_fallback_active();
+        
+        // Register AJAX handlers
+        add_action('wp_ajax_woo_update_api_get_status', [$this, 'ajax_get_status']);
+        add_action('wp_ajax_woo_update_api_reconnect', [$this, 'ajax_reconnect']);
     }
 
     public function get_product_data($product_id, $sku = '')
     {
         // If in fallback mode, return false to use WooCommerce defaults
-        // temporaly disable fallabacck
-        // $this->deactivate_fallback_mode();
         if ($this->is_in_fallback_mode()) {
             error_log('[Woo Update API] Currently in fallback mode - using WooCommerce defaults');
             return false;
         }
 
-        $transient_key = 'woo_update_api_data_' . md5($product_id . $sku);
-        $cached_data = get_transient($transient_key);
+        // Check if API is configured
+        if (empty($this->api_url) || empty($this->api_key)) {
+            error_log('[Woo Update API] API not configured');
+            return false;
+        }
 
-        if ($cached_data !== false) {
+        $cache_key = 'woo_update_api_product_' . md5($product_id . $sku);
+        $cached_data = get_transient($cache_key);
+
+        if ($cached_data !== false && !empty($cached_data)) {
             return $cached_data;
         }
 
+        try {
+            $data = $this->make_api_request($product_id, $sku);
+            
+            if ($data !== false) {
+                // Cache successful response
+                set_transient($cache_key, $data, $this->cache_time);
+                // Reset error counter on successful request
+                $this->error_manager->reset_errors();
+                return $data;
+            }
+            
+            // If we get here, API request failed
+            $this->error_manager->increment_error();
+            
+            // Check if we should activate fallback mode
+            if ($this->error_manager->get_error_count() >= $this->error_manager->get_error_threshold()) {
+                $this->activate_fallback_mode();
+            }
+            
+            return false;
+            
+        } catch (Exception $e) {
+            error_log('[Woo Update API] Exception: ' . $e->getMessage());
+            $this->error_manager->increment_error();
+            return false;
+        }
+    }
+
+    private function make_api_request($product_id, $sku)
+    {
         $args = [
             'headers' => [
                 'Authorization' => 'Bearer ' . $this->api_key,
                 'Content-Type' => 'application/json',
+                'Accept' => 'application/json'
             ],
-            'timeout' => 10, // Shorter timeout for faster fallback
+            'timeout' => 15,
+            'sslverify' => apply_filters('woo_update_api_sslverify', true)
         ];
 
         $endpoint = add_query_arg([
             'product_id' => $product_id,
             'sku' => $sku,
+            'timestamp' => time()
         ], $this->api_url);
 
-        //$response = wp_safe_remote_get($endpoint, $args); old way
-
-        $response  = $this->make_api_request($endpoint, $args);
-
-
-        // API Request failed - activate fallback mode
-        if (is_wp_error($response)) {
-            $this->activate_fallback_mode();
-            error_log('[Woo Update API] API request failed: ' . $response->get_error_message());
-            return false;
-        }
-
-        $body = wp_remote_retrieve_body($response);
-        $data = json_decode($body, true);
-        $productData = $data['product'];
-
-        if (json_last_error() !== JSON_ERROR_NONE || !isset($data['success']) || !$data['success']) {
-            $this->activate_fallback_mode();
-            error_log('[Woo Update API] Invalid API response');
-            return false;
-        }
-
-        // API is working - ensure we're not in fallback mode
-        $this->deactivate_fallback_mode();
-
-        set_transient($transient_key, $data, $this->cache_time);
-        // var_dump($productData);
-        return $productData;
-    }
-
-
-
-    public function make_api_request($endpoint, $args = [])
-    {
-        if ($this->should_use_fallback()) {
-            return $this->get_cached_data();
-        }
-
-        try {
-            $response = $this->execute_api_call($endpoint, $args);
-            $this->error_manager->reset_errors();
-            return $response;
-        } catch (Exception $e) {
-            $this->handle_api_error($e);
-            return $this->get_fallback_data();
-        }
-    }
-
-    /**
-     * Get cached data - previously missing method
-     */
-    protected function get_cached_data() {
-        $cached = get_transient($this->cache_key);
-        if (false === $cached) {
-            return []; // Return empty array if no cache exists
-        }
-        return $cached;
-    }
-
-    /**
-     * Cache API data
-     */
-    protected function cache_data($data) {
-        set_transient(
-            $this->cache_key,
-            $data,
-            apply_filters('woo_update_api_cache_expiration', HOUR_IN_SECONDS)
-        );
-    }
-
-    private function execute_api_call($endpoint, $args)
-    {
-              
-
-        $response = wp_remote_get($endpoint, $args);
+        $response = wp_safe_remote_get($endpoint, $args);
 
         if (is_wp_error($response)) {
             throw new Exception($response->get_error_message());
@@ -156,44 +117,66 @@ class API_Handler
 
         $status_code = wp_remote_retrieve_response_code($response);
         if ($status_code !== 200) {
-            throw new Exception("API returned status: $status_code");
+            throw new Exception(sprintf(__('API returned status: %d', 'woo-update-api'), $status_code));
         }
 
-        return json_decode(wp_remote_retrieve_body($response), true);
+        $body = wp_remote_retrieve_body($response);
+        $data = json_decode($body, true);
+
+        if (json_last_error() !== JSON_ERROR_NONE) {
+            throw new Exception(__('Invalid JSON response from API', 'woo-update-api'));
+        }
+
+        // Check for API-specific error indicators
+        if (isset($data['error']) || (isset($data['success']) && $data['success'] === false)) {
+            $error_msg = $data['message'] ?? __('API returned an error', 'woo-update-api');
+            throw new Exception($error_msg);
+        }
+
+        // Return product data - handle different response structures
+        if (isset($data['product'])) {
+            return $data['product'];
+        }
+        
+        // If no 'product' key, assume the entire response is product data
+        return $data;
     }
 
-    /**
-     * Handle API errors (previously missing method)
-     */
-    private function handle_api_error(\Exception $e) {
-        $error_count = $this->error_manager->increment_error();
-        error_log(sprintf(
-            '[Woo Update API] Error #%d: %s',
-            $error_count,
-            $e->getMessage()
-        ));
-    }
-
-    private function should_use_fallback()
+    public function test_connection()
     {
-        return $this->error_manager->is_fallback_active() ||
-            ($this->api_settings['disable_fallback'] ?? 'no') === 'yes';
-    }
+        if (empty($this->api_url) || empty($this->api_key)) {
+            throw new Exception(__('API URL and Key must be configured', 'woo-update-api'));
+        }
 
-    private function get_fallback_data() {
-        return $this->error_manager->get_error_count() < 5 ? 
-            $this->get_cached_data() : 
-            false;
-    }
+        $args = [
+            'headers' => [
+                'Authorization' => 'Bearer ' . $this->api_key,
+                'Content-Type' => 'application/json'
+            ],
+            'timeout' => 10
+        ];
 
+        $response = wp_safe_remote_get($this->api_url, $args);
+
+        if (is_wp_error($response)) {
+            throw new Exception($response->get_error_message());
+        }
+
+        $status_code = wp_remote_retrieve_response_code($response);
+        
+        if ($status_code === 200) {
+            return true;
+        } else {
+            throw new Exception(sprintf(__('API returned status: %d', 'woo-update-api'), $status_code));
+        }
+    }
 
     private function activate_fallback_mode()
     {
         if (!$this->fallback_mode) {
+            $this->fallback_mode = true;
             set_transient('woo_update_api_fallback_mode', true, $this->reconnect_time);
             set_transient('woo_update_api_fallback_start', time(), $this->reconnect_time);
-            $this->fallback_mode = true;
-            $this->fallback_start_time = time();
 
             // Send admin notification
             $admin_email = get_option('admin_email');
@@ -202,28 +185,117 @@ class API_Handler
                 __('WooCommerce Update API Fallback Mode Activated', 'woo-update-api'),
                 __('The API service is unavailable. The plugin has switched to fallback mode using WooCommerce default data.', 'woo-update-api')
             );
+            
+            error_log('[Woo Update API] Fallback mode activated');
         }
     }
 
     private function deactivate_fallback_mode()
     {
         if ($this->fallback_mode) {
+            $this->fallback_mode = false;
             delete_transient('woo_update_api_fallback_mode');
             delete_transient('woo_update_api_fallback_start');
-            $this->fallback_mode = false;
-            $this->fallback_start_time = 0;
+            error_log('[Woo Update API] Fallback mode deactivated');
         }
     }
 
     public function is_in_fallback_mode()
     {
-        // Only use fallback mode for maximum 1 hour
-        if ($this->fallback_mode && (time() - $this->fallback_start_time) < HOUR_IN_SECONDS) {
+        // Check transient first
+        $fallback_transient = get_transient('woo_update_api_fallback_mode');
+        
+        if ($fallback_transient) {
+            $this->fallback_mode = true;
             return true;
         }
-
-        // Fallback period expired - try API again
-        $this->deactivate_fallback_mode();
+        
+        // Also check error manager
+        if ($this->error_manager->is_fallback_active()) {
+            $this->fallback_mode = true;
+            return true;
+        }
+        
+        $this->fallback_mode = false;
         return false;
+    }
+
+    public function ajax_get_status()
+    {
+        check_ajax_referer('woo_update_api_nonce', 'nonce');
+
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error(['message' => __('Permission denied', 'woo-update-api')]);
+        }
+
+        try {
+            $status = [
+                'connected' => false,
+                'fallback_mode' => $this->is_in_fallback_mode(),
+                'error_count' => $this->error_manager->get_error_count(),
+                'error_threshold' => $this->error_manager->get_error_threshold(),
+                'settings_configured' => !empty($this->api_url) && !empty($this->api_key)
+            ];
+
+            // Test connection if configured
+            if ($status['settings_configured']) {
+                $status['connected'] = $this->test_connection();
+            }
+
+            wp_send_json_success($status);
+        } catch (Exception $e) {
+            wp_send_json_error([
+                'message' => $e->getMessage(),
+                'connected' => false
+            ]);
+        }
+    }
+
+    public function ajax_reconnect()
+    {
+        check_ajax_referer('woo_update_api_nonce', 'nonce');
+
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error(['message' => __('Permission denied', 'woo-update-api')]);
+        }
+
+        try {
+            // Reset error manager
+            $this->error_manager->reset_errors();
+            
+            // Clear fallback mode
+            $this->deactivate_fallback_mode();
+            
+            // Clear all product caches
+            global $wpdb;
+            $wpdb->query(
+                $wpdb->prepare(
+                    "DELETE FROM {$wpdb->options} WHERE option_name LIKE %s",
+                    '_transient_woo_update_api_product_%'
+                )
+            );
+            
+            // Test connection
+            $connected = $this->test_connection();
+            
+            wp_send_json_success([
+                'message' => __('Reconnected successfully! All caches cleared.', 'woo-update-api'),
+                'connected' => $connected,
+                'fallback_mode' => false,
+                'error_count' => 0
+            ]);
+        } catch (Exception $e) {
+            wp_send_json_error([
+                'message' => __('Reconnect failed: ', 'woo-update-api') . $e->getMessage()
+            ]);
+        }
+    }
+
+    public function get_api_url() {
+        return $this->api_url;
+    }
+    
+    public function get_api_key() {
+        return $this->api_key;
     }
 }

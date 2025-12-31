@@ -1,25 +1,24 @@
 <?php
-
 /**
  * Plugin Name: WooCommerce Update API
  * Plugin URI: https://github.com/estratos/woo-update-api
  * Description: Fetches real-time product pricing and inventory from external APIs with manual refresh capability.
- * Version: 1.1.1
+ * Version: 1.1.3
  * Author: Estratos
  * Author URI: https://estratos.net
  * Text Domain: woo-update-api
  * Domain Path: /languages
- * Requires at least: 8.0
+ * Requires at least: 5.8
  * Requires PHP: 8.0
  * WC tested up to: 8.2
  */
 
-use Woo_Update_API\API_Error_Manager;
+namespace Woo_Update_API;
 
 defined('ABSPATH') || exit;
 
 // Define plugin constants
-define('WOO_UPDATE_API_VERSION', '1.1.2');
+define('WOO_UPDATE_API_VERSION', '1.1.3');
 define('WOO_UPDATE_API_PATH', plugin_dir_path(__FILE__));
 define('WOO_UPDATE_API_URL', plugin_dir_url(__FILE__));
 define('WOO_UPDATE_API_FILE', __FILE__);
@@ -60,17 +59,7 @@ class Woo_Update_API
 
         // Initialize plugin
         add_action('plugins_loaded', [$this, 'init'], 20);
-        
-        // Register AJAX handlers
-        add_action('wp_ajax_woo_update_api_get_status', [API_Handler::instance(), 'get_status']);
-        add_action('wp_ajax_woo_update_api_reconnect', [API_Handler::instance(), 'handle_reconnect']);
-        add_action('wp_ajax_woo_update_api_refresh_product', [Price_Updater::instance(), 'ajax_refresh_product']);
-        // In your main plugin file:
-        
     }
-
-    
-
 
     public function check_woocommerce_active()
     {
@@ -113,13 +102,17 @@ class Woo_Update_API
     private function init_hooks()
     {
         // Initialize classes
-        new Woo_Update_API\API_Handler();
-        new Woo_Update_API\Price_Updater();
-        new Woo_Update_API\Ajax_Handler();
-        new Woo_Update_API\API_Error_Manager();
+        API_Handler::instance();
+        Price_Updater::instance();
+        Ajax_Handler::instance();
+        API_Error_Manager::instance();
 
+        // Register AJAX handlers
+        add_action('wp_ajax_woo_update_api_get_status', [API_Handler::instance(), 'ajax_get_status']);
+        add_action('wp_ajax_woo_update_api_reconnect', [API_Handler::instance(), 'ajax_reconnect']);
+        
         if (is_admin()) {
-            new Woo_Update_API\Admin\Settings();
+            Admin\Settings::instance();
             add_action('admin_enqueue_scripts', [$this, 'admin_scripts']);
         }
 
@@ -129,14 +122,17 @@ class Woo_Update_API
 
     public function admin_scripts($hook)
     {
-        // Only load on product edit pages
-        if ('post.php' !== $hook && 'post-new.php' !== $hook) {
+        // Only load on product edit pages and settings page
+        if (!in_array($hook, ['post.php', 'post-new.php', 'settings_page_woo-update-api'])) {
             return;
         }
 
-        global $post;
-        if ('product' !== $post->post_type) {
-            return;
+        // Load on product pages
+        if (in_array($hook, ['post.php', 'post-new.php'])) {
+            global $post;
+            if (!$post || 'product' !== $post->post_type) {
+                return;
+            }
         }
 
         // Enqueue admin JS
@@ -144,14 +140,11 @@ class Woo_Update_API
             'woo-update-api-admin',
             WOO_UPDATE_API_URL . 'assets/js/admin.js',
             ['jquery', 'woocommerce_admin'],
-            filemtime(WOO_UPDATE_API_PATH . 'assets/js/admin.js'),
+            WOO_UPDATE_API_VERSION,
             true
         );
 
         // Localize script data
-
-
-        ////// new localization
         wp_localize_script('woo-update-api-admin', 'woo_update_api', [
             'ajaxurl' => admin_url('admin-ajax.php'),
             'nonce' => wp_create_nonce('woo_update_api_nonce'),
@@ -164,7 +157,9 @@ class Woo_Update_API
                 'connection_failed' => __('API connection failed', 'woo-update-api'),
                 'status_error' => __('Could not load status', 'woo-update-api'),
                 'request_failed' => __('Request failed. Please try again.', 'woo-update-api'),
-                'refreshing' => __('Refreshing...', 'woo-update-api')
+                'refreshing' => __('Refreshing...', 'woo-update-api'),
+                'success' => __('Success!', 'woo-update-api'),
+                'error' => __('Error', 'woo-update-api')
             ]
         ]);
 
@@ -175,10 +170,42 @@ class Woo_Update_API
                 margin: 15px 0;
                 border: 1px solid #ccd0d4;
                 background: #f6f7f7;
+                border-radius: 4px;
+            }
+            .wc-update-api-container h3 {
+                margin-top: 0;
+                margin-bottom: 10px;
+            }
+            .wc-update-api-refresh {
+                position: relative;
             }
             .wc-update-api-refresh .spinner {
                 float: none;
                 margin: 0 5px 0 0;
+                visibility: hidden;
+            }
+            .wc-update-api-refresh.loading .spinner {
+                visibility: visible;
+            }
+            .woo-update-api-status {
+                margin-top: 10px;
+                padding: 10px;
+                border-radius: 4px;
+            }
+            .woo-update-api-status.success {
+                background-color: #d4edda;
+                border: 1px solid #c3e6cb;
+                color: #155724;
+            }
+            .woo-update-api-status.error {
+                background-color: #f8d7da;
+                border: 1px solid #f5c6cb;
+                color: #721c24;
+            }
+            .woo-update-api-status.warning {
+                background-color: #fff3cd;
+                border: 1px solid #ffeaa7;
+                color: #856404;
             }
         ');
     }
@@ -192,32 +219,6 @@ class Woo_Update_API
         );
         array_unshift($links, $settings_link);
         return $links;
-    }
-
-
-    public function ajax_reconnect()
-    {
-        check_ajax_referer('woo_update_api_nonce', 'security');
-
-        try {
-            $api = new WC_Update_API_Handler();
-            $api->test_connection();
-            $error_manager = new WC_Update_API_Error_Manager();
-            $error_manager->reset_errors();
-
-            ob_start();
-            $this->display_api_status();
-            $status_html = ob_get_clean();
-
-            wp_send_json_success([
-                'message' => __('Reconnected successfully! Error counter reset.', 'woo-update-api'),
-                'status_html' => $status_html
-            ]);
-        } catch (Exception $e) {
-            wp_send_json_error([
-                'message' => __('Reconnect failed: ', 'woo-update-api') . $e->getMessage()
-            ]);
-        }
     }
 }
 

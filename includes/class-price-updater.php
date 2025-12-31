@@ -1,5 +1,4 @@
 <?php
-
 namespace Woo_Update_API;
 
 defined('ABSPATH') || exit;
@@ -36,155 +35,116 @@ class Price_Updater
         // Stock hooks
         add_filter('woocommerce_product_get_stock_quantity', [$this, 'update_stock'], 99, 2);
         add_filter('woocommerce_variation_get_stock_quantity', [$this, 'update_stock'], 99, 2);
-        add_filter('woocommerce_product_is_in_stock', [$this, 'update_stock_status'], 99, 2);
+        add_filter('woocommerce_product_get_stock_status', [$this, 'update_stock_status'], 99, 2);
+        add_filter('woocommerce_variation_get_stock_status', [$this, 'update_stock_status'], 99, 2);
 
-        // Admin notice for fallback mode
+        // Admin hooks
         add_action('admin_notices', [$this, 'admin_notice_fallback_mode']);
-
         add_action('woocommerce_product_options_general_product_data', [$this, 'add_refresh_ui']);
-    }
-
-    public function add_refresh_button()
-    {
-        global $post;
-
-        // Only add our nonce if one doesn't exist
-        if (!wp_script_is('wc-admin-product-meta-boxes', 'done')) {
-            wp_nonce_field('woocommerce_save_data', 'woocommerce_meta_nonce');
-        }
-
-        echo '<div class="options_group">';
-        echo '<p class="form-field">';
-        echo '<label>' . __('API Data', 'woo-update-api') . '</label>';
-        echo '<button type="button" class="button refresh-api-data" data-product-id="' . esc_attr($post->ID) . '">';
-        echo __('Refresh from API', 'woo-update-api');
-        echo '</button>';
-        echo '<span class="spinner" style="float:none; margin-left:10px;"></span>';
-        echo '</p>';
-        echo '</div>';
     }
 
     public function add_refresh_ui()
     {
         global $post;
 
+        if (!$post || 'product' !== $post->post_type) {
+            return;
+        }
+
         echo '<div class="wc-update-api-container">';
-        echo '<h3>' . __('API Data Refresh', 'woo-update-api') . '</h3>';
-        echo '<button class="button button-primary wc-update-api-refresh" data-product-id="' . esc_attr($post->ID) . '">';
+        echo '<h3>' . esc_html__('API Data Refresh', 'woo-update-api') . '</h3>';
+        echo '<button class="button button-primary wc-update-api-refresh" data-product-id="' . esc_attr($post->ID) . '" data-nonce="' . wp_create_nonce('wc_update_api_refresh') . '">';
         echo '<span class="spinner"></span>';
-        echo __('Refresh Now', 'woo-update-api');
+        echo esc_html__('Refresh Now', 'woo-update-api');
         echo '</button>';
+        echo '<div class="woo-update-api-result" style="margin-top: 10px;"></div>';
         echo '</div>';
     }
 
     public function update_price($price, $product)
     {
+        // Don't override prices in admin area (except AJAX requests)
         if (is_admin() && !wp_doing_ajax()) {
             return $price;
         }
 
-        // var_dump($product->get_sku());
+        // Get API data
         $api_data = $this->api_handler->get_product_data($product->get_id(), $product->get_sku());
 
-
-        // If API is unavailable ($api_data === false), return original price
+        // If API is unavailable or returns false, return original price
         if ($api_data === false) {
             return $price;
         }
 
-        if ($api_data && isset($api_data['product']['price_mxn'])) {
-            return floatval($api_data['product']['price_mxn']);
+        // Check for price in API response (support multiple currencies)
+        if ($api_data && isset($api_data['price_mxn'])) {
+            return floatval($api_data['price_mxn']);
         }
-
-        // var_dump($api_data['product']['price_mxn']);
-        /// var_dump($api_data);
-
+        
+        if ($api_data && isset($api_data['price'])) {
+            return floatval($api_data['price']);
+        }
 
         return $price;
     }
 
     public function update_stock($quantity, $product)
     {
+        // Don't override stock in admin area (except AJAX requests)
         if (is_admin() && !wp_doing_ajax()) {
             return $quantity;
         }
 
         $api_data = $this->api_handler->get_product_data($product->get_id(), $product->get_sku());
 
-        // If API is unavailable ($api_data === false), return original quantity
+        // If API is unavailable or returns false, return original quantity
         if ($api_data === false) {
             return $quantity;
         }
 
-        if ($api_data && isset($api_data['product']['stock_quantity'])) {
-            return intval($api_data['product']['stock_quantity']);
+        if ($api_data && isset($api_data['stock_quantity'])) {
+            $stock = intval($api_data['stock_quantity']);
+            // Ensure stock is not negative
+            return max(0, $stock);
         }
 
         return $quantity;
     }
 
-    public function update_stock_status($in_stock, $product)
+    public function update_stock_status($status, $product)
     {
+        // Don't override status in admin area (except AJAX requests)
         if (is_admin() && !wp_doing_ajax()) {
-            return $in_stock;
+            return $status;
         }
 
         $api_data = $this->api_handler->get_product_data($product->get_id(), $product->get_sku());
 
-        // If API is unavailable ($api_data === false), return original status
+        // If API is unavailable or returns false, return original status
         if ($api_data === false) {
-            return $in_stock;
+            return $status;
         }
 
         if ($api_data && isset($api_data['in_stock'])) {
-            return (bool) $api_data['in_stock'];
+            return $api_data['in_stock'] ? 'instock' : 'outofstock';
+        }
+        
+        // Calculate stock status from quantity if available
+        if ($api_data && isset($api_data['stock_quantity'])) {
+            return intval($api_data['stock_quantity']) > 0 ? 'instock' : 'outofstock';
         }
 
-        return $in_stock;
+        return $status;
     }
 
     public function admin_notice_fallback_mode()
     {
         if ($this->api_handler->is_in_fallback_mode()) {
-?>
-            <div class="notice notice-warning">
+            ?>
+            <div class="notice notice-warning is-dismissible">
                 <p><?php _e('WooCommerce Update API is currently in fallback mode. The external API service is unavailable, so default WooCommerce pricing and inventory data is being used.', 'woo-update-api'); ?></p>
             </div>
-<?php
-        }
-    }
-
-    public function ajax_refresh_product()
-    {
-        check_ajax_referer('woo_update_api_nonce', 'security');
-
-        if (!current_user_can('edit_products')) {
-            wp_send_json_error(['message' => __('Permission denied', 'woo-update-api')], 403);
-        }
-
-        $product_id = isset($_POST['product_id']) ? absint($_POST['product_id']) : 0;
-
-        if (!$product_id) {
-            wp_send_json_error(['message' => __('Invalid product ID', 'woo-update-api')], 400);
-        }
-
-        try {
-            $api_handler = new API_Handler();
-            $product_data = $api_handler->get_product_data($product_id);
-
-            // Update product meta
-            update_post_meta($product_id, '_api_price', $product_data['price']);
-            update_post_meta($product_id, '_api_stock', $product_data['stock']);
-
-            wp_send_json_success([
-                'message' => __('Product data refreshed successfully!', 'woo-update-api'),
-                'price' => wc_price($product_data['price']),
-                'stock' => $product_data['stock']
-            ]);
-        } catch (\Exception $e) {
-            wp_send_json_error([
-                'message' => __('Refresh failed: ', 'woo-update-api') . $e->getMessage()
-            ], 500);
+            <?php
         }
     }
 }
