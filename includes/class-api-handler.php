@@ -169,40 +169,51 @@ class API_Handler
             throw new Exception(__('API URL and Key must be configured', 'woo-update-api'));
         }
 
-        // Construir URL con API key como query parameter
+        error_log('[Woo Update API DEBUG] Testing connection...');
+
+        // Construir URL de prueba - usar SKU de prueba
         $test_url = add_query_arg([
+            'sku' => 'EAPO1004', // SKU que sabemos que existe
             'api_key' => $this->api_key,
-            'test' => '1',
             'timestamp' => time()
-        ], $this->api_url);
+        ], rtrim($this->api_url, '?&'));
+
+        error_log('[Woo Update API DEBUG] Test URL: ' . str_replace($this->api_key, 'API_KEY_REDACTED', $test_url));
 
         $args = [
             'headers' => [
-                'Content-Type' => 'application/json'
+                'Accept' => 'application/json',
+                'User-Agent' => 'WooCommerce-Update-API-Test/1.0'
             ],
-            'timeout' => 10
+            'timeout' => 10,
+            'sslverify' => true
         ];
 
         $response = wp_safe_remote_get($test_url, $args);
 
         if (is_wp_error($response)) {
+            error_log('[Woo Update API DEBUG] Test connection WP_Error: ' . $response->get_error_message());
             throw new Exception($response->get_error_message());
         }
 
         $status_code = wp_remote_retrieve_response_code($response);
+        $response_body = wp_remote_retrieve_body($response);
 
-        // Para health check, podemos aceptar 200 o 404 (si no hay parámetros de producto)
+        error_log('[Woo Update API DEBUG] Test response status: ' . $status_code);
+        error_log('[Woo Update API DEBUG] Test response body: ' . substr($response_body, 0, 500));
+
         if ($status_code === 200) {
-            $body = wp_remote_retrieve_body($response);
-            $data = json_decode($body, true);
+            $data = json_decode($response_body, true);
 
-            // Verificar si es una respuesta válida del API
-            if (isset($data['success']) || isset($data['status'])) {
+            if (isset($data['success']) && $data['success'] === true) {
+                error_log('[Woo Update API DEBUG] Test connection SUCCESS');
                 return true;
             }
 
-            throw new Exception(__('Invalid API response format', 'woo-update-api'));
+            error_log('[Woo Update API DEBUG] Test connection failed - success flag false');
+            throw new Exception(__('API returned success: false', 'woo-update-api'));
         } else {
+            error_log('[Woo Update API DEBUG] Test connection failed with status: ' . $status_code);
             throw new Exception(sprintf(__('API returned status: %d', 'woo-update-api'), $status_code));
         }
     }
