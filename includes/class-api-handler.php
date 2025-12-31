@@ -1,4 +1,5 @@
 <?php
+
 namespace Woo_Update_API;
 
 use Exception;
@@ -36,7 +37,7 @@ class API_Handler
 
         // Check fallback mode from error manager
         $this->fallback_mode = $this->error_manager->is_fallback_active();
-        
+
         // Register AJAX handlers
         add_action('wp_ajax_woo_update_api_get_status', [$this, 'ajax_get_status']);
         add_action('wp_ajax_woo_update_api_reconnect', [$this, 'ajax_reconnect']);
@@ -65,7 +66,7 @@ class API_Handler
 
         try {
             $data = $this->make_api_request($product_id, $sku);
-            
+
             if ($data !== false) {
                 // Cache successful response
                 set_transient($cache_key, $data, $this->cache_time);
@@ -73,17 +74,16 @@ class API_Handler
                 $this->error_manager->reset_errors();
                 return $data;
             }
-            
+
             // If we get here, API request failed
             $this->error_manager->increment_error();
-            
+
             // Check if we should activate fallback mode
             if ($this->error_manager->get_error_count() >= $this->error_manager->get_error_threshold()) {
                 $this->activate_fallback_mode();
             }
-            
+
             return false;
-            
         } catch (Exception $e) {
             error_log('[Woo Update API] Exception: ' . $e->getMessage());
             $this->error_manager->increment_error();
@@ -91,11 +91,27 @@ class API_Handler
         }
     }
 
+
     private function make_api_request($product_id, $sku)
     {
+        // Construir URL con parámetros
+        $query_args = [
+            'sku' => $sku,
+            'api_key' => $this->api_key  // API key como query parameter
+        ];
+
+        // Agregar product_id solo si está presente
+        if (!empty($product_id)) {
+            $query_args['product_id'] = $product_id;
+        }
+
+        // Agregar timestamp para evitar cache
+        $query_args['timestamp'] = time();
+
+        $endpoint = add_query_arg($query_args, $this->api_url);
+
         $args = [
             'headers' => [
-                'Authorization' => 'Bearer ' . $this->api_key,
                 'Content-Type' => 'application/json',
                 'Accept' => 'application/json'
             ],
@@ -103,11 +119,10 @@ class API_Handler
             'sslverify' => apply_filters('woo_update_api_sslverify', true)
         ];
 
-        $endpoint = add_query_arg([
-            'product_id' => $product_id,
-            'sku' => $sku,
-            'timestamp' => time()
-        ], $this->api_url);
+        // Debug: registrar la URL (solo en modo desarrollo)
+        if (defined('WP_DEBUG') && WP_DEBUG) {
+            error_log('[Woo Update API] Request URL: ' . $endpoint);
+        }
 
         $response = wp_safe_remote_get($endpoint, $args);
 
@@ -116,6 +131,12 @@ class API_Handler
         }
 
         $status_code = wp_remote_retrieve_response_code($response);
+
+        // Registrar respuesta para debugging
+        if (defined('WP_DEBUG') && WP_DEBUG) {
+            error_log('[Woo Update API] Response Status: ' . $status_code);
+        }
+
         if ($status_code !== 200) {
             throw new Exception(sprintf(__('API returned status: %d', 'woo-update-api'), $status_code));
         }
@@ -137,7 +158,7 @@ class API_Handler
         if (isset($data['product'])) {
             return $data['product'];
         }
-        
+
         // If no 'product' key, assume the entire response is product data
         return $data;
     }
@@ -148,24 +169,39 @@ class API_Handler
             throw new Exception(__('API URL and Key must be configured', 'woo-update-api'));
         }
 
+        // Construir URL con API key como query parameter
+        $test_url = add_query_arg([
+            'api_key' => $this->api_key,
+            'test' => '1',
+            'timestamp' => time()
+        ], $this->api_url);
+
         $args = [
             'headers' => [
-                'Authorization' => 'Bearer ' . $this->api_key,
                 'Content-Type' => 'application/json'
             ],
             'timeout' => 10
         ];
 
-        $response = wp_safe_remote_get($this->api_url, $args);
+        $response = wp_safe_remote_get($test_url, $args);
 
         if (is_wp_error($response)) {
             throw new Exception($response->get_error_message());
         }
 
         $status_code = wp_remote_retrieve_response_code($response);
-        
+
+        // Para health check, podemos aceptar 200 o 404 (si no hay parámetros de producto)
         if ($status_code === 200) {
-            return true;
+            $body = wp_remote_retrieve_body($response);
+            $data = json_decode($body, true);
+
+            // Verificar si es una respuesta válida del API
+            if (isset($data['success']) || isset($data['status'])) {
+                return true;
+            }
+
+            throw new Exception(__('Invalid API response format', 'woo-update-api'));
         } else {
             throw new Exception(sprintf(__('API returned status: %d', 'woo-update-api'), $status_code));
         }
@@ -185,7 +221,7 @@ class API_Handler
                 __('WooCommerce Update API Fallback Mode Activated', 'woo-update-api'),
                 __('The API service is unavailable. The plugin has switched to fallback mode using WooCommerce default data.', 'woo-update-api')
             );
-            
+
             error_log('[Woo Update API] Fallback mode activated');
         }
     }
@@ -204,18 +240,18 @@ class API_Handler
     {
         // Check transient first
         $fallback_transient = get_transient('woo_update_api_fallback_mode');
-        
+
         if ($fallback_transient) {
             $this->fallback_mode = true;
             return true;
         }
-        
+
         // Also check error manager
         if ($this->error_manager->is_fallback_active()) {
             $this->fallback_mode = true;
             return true;
         }
-        
+
         $this->fallback_mode = false;
         return false;
     }
@@ -262,10 +298,10 @@ class API_Handler
         try {
             // Reset error manager
             $this->error_manager->reset_errors();
-            
+
             // Clear fallback mode
             $this->deactivate_fallback_mode();
-            
+
             // Clear all product caches
             global $wpdb;
             $wpdb->query(
@@ -274,10 +310,10 @@ class API_Handler
                     '_transient_woo_update_api_product_%'
                 )
             );
-            
+
             // Test connection
             $connected = $this->test_connection();
-            
+
             wp_send_json_success([
                 'message' => __('Reconnected successfully! All caches cleared.', 'woo-update-api'),
                 'connected' => $connected,
@@ -291,11 +327,13 @@ class API_Handler
         }
     }
 
-    public function get_api_url() {
+    public function get_api_url()
+    {
         return $this->api_url;
     }
-    
-    public function get_api_key() {
+
+    public function get_api_key()
+    {
         return $this->api_key;
     }
 }
