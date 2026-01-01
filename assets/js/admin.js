@@ -9,6 +9,7 @@ jQuery(function($) {
         setupStatusPolling();
         setupReconnectButton();
         setupRefreshButtons();
+        setupStockValidation(); // NUEVO
     }
 
     // Status polling with proper error handling
@@ -111,6 +112,108 @@ jQuery(function($) {
         });
     }
 
+    // NUEVO: Validación de stock en frontend
+    function setupStockValidation() {
+        // Solo en páginas de producto single
+        if ($('body').hasClass('single-product')) {
+            // Interceptar botón "Añadir al carrito"
+            $document.on('click', '.single_add_to_cart_button', function(e) {
+                e.preventDefault();
+                
+                if (isProcessing) return;
+                
+                const $button = $(this);
+                const $form = $button.closest('form.cart');
+                const product_id = $form.find('input[name="add-to-cart"]').val();
+                const variation_id = $form.find('input[name="variation_id"]').val() || 0;
+                const quantity = $form.find('input[name="quantity"]').val() || 1;
+                
+                isProcessing = true;
+                $button.prop('disabled', true).addClass('loading');
+                
+                // Validar stock antes de añadir
+                $.ajax({
+                    url: woo_update_api.ajaxurl,
+                    method: 'POST',
+                    data: {
+                        action: 'woo_update_api_validate_stock',
+                        product_id: product_id,
+                        variation_id: variation_id,
+                        quantity: quantity,
+                        nonce: woo_update_api.nonce
+                    },
+                    success: function(response) {
+                        if (response.success) {
+                            // Stock disponible, proceder con añadir al carrito
+                            $form.submit();
+                        } else {
+                            // Mostrar error de stock
+                            showFrontendNotice(response.data.message, 'error');
+                            $button.prop('disabled', false).removeClass('loading');
+                            isProcessing = false;
+                        }
+                    },
+                    error: function() {
+                        showFrontendNotice(woo_update_api.i18n.request_failed, 'error');
+                        $button.prop('disabled', false).removeClass('loading');
+                        isProcessing = false;
+                    }
+                });
+            });
+            
+            // Actualización periódica de stock en página
+            setInterval(function() {
+                const product_id = $('input[name="add-to-cart"]').val();
+                if (product_id) {
+                    checkStockUpdate(product_id);
+                }
+            }, 60000); // Cada minuto
+        }
+    }
+    
+    // Verificar actualizaciones de stock
+    function checkStockUpdate(product_id) {
+        $.get(woo_update_api.ajaxurl, {
+            action: 'woo_update_api_get_status',
+            product_id: product_id,
+            nonce: woo_update_api.nonce,
+            _: Date.now()
+        })
+        .done(function(response) {
+            if (response.success && response.data.stock_changed) {
+                // Actualizar display de stock sin recargar
+                $('.stock.in-stock').text(response.data.stock_message);
+                showFrontendNotice(
+                    woo_update_api.i18n.stock_updated + ': ' + response.data.stock_message,
+                    'success'
+                );
+            }
+        });
+    }
+    
+    // Mostrar notificaciones en frontend
+    function showFrontendNotice(message, type) {
+        // Remover notificaciones existentes
+        $('.woo-update-api-frontend-notice').remove();
+        
+        const noticeClass = type === 'error' ? 'woocommerce-error' : 'woocommerce-message';
+        const notice = $(
+            '<div class="' + noticeClass + ' woo-update-api-frontend-notice">' +
+            '<p>' + message + '</p>' +
+            '</div>'
+        );
+        
+        // Insertar antes del formulario
+        $('form.cart').before(notice);
+        
+        // Auto-remover después de 5 segundos
+        setTimeout(function() {
+            notice.fadeOut(500, function() {
+                $(this).remove();
+            });
+        }, 5000);
+    }
+
     // Product refresh handler
     function setupRefreshButtons() {
         $document.on('click', '.refresh-api-data, .wc-update-api-refresh', function(e) {
@@ -131,7 +234,7 @@ jQuery(function($) {
             const action = $button.hasClass('refresh-api-data') ? 
                 'woo_update_api_refresh_product' : 'wc_update_api_manual_refresh';
             
-            // Get nonce (either from button data or create new)
+            // Get nonce
             let nonce = $button.data('nonce');
             if (!nonce) {
                 nonce = $button.hasClass('refresh-api-data') ? 
@@ -161,6 +264,9 @@ jQuery(function($) {
                         }
                         if (response.data.stock) {
                             resultHtml += '<br>' + woo_update_api.i18n.stock + ': ' + response.data.stock;
+                            if (response.data.stock_synced) {
+                                resultHtml += ' ' + woo_update_api.i18n.stock_synced;
+                            }
                         }
                         
                         resultHtml += '</p></div>';
@@ -202,7 +308,6 @@ jQuery(function($) {
     function updateProductDisplay(data, $button) {
         // Check which price field to update based on button location
         if (data.price_raw) {
-            // Try to update WooCommerce price fields
             const $regularPrice = $('input[name="_regular_price"], #_regular_price');
             const $salePrice = $('input[name="_sale_price"], #_sale_price');
             
@@ -210,7 +315,6 @@ jQuery(function($) {
                 $regularPrice.val(data.price_raw).trigger('change');
             }
             
-            // Only update sale price if it's empty or we have specific sale price data
             if (data.sale_price_raw && $salePrice.length) {
                 $salePrice.val(data.sale_price_raw).trigger('change');
             }
@@ -224,7 +328,6 @@ jQuery(function($) {
                 $stockField.val(data.stock).trigger('change');
             }
             
-            // Ensure manage stock is checked
             if ($manageStock.length && !$manageStock.prop('checked')) {
                 $manageStock.prop('checked', true).trigger('change');
             }
@@ -233,12 +336,10 @@ jQuery(function($) {
 
     // Show admin notice
     function showNotice(message, type = 'success') {
-        // Remove any existing notices of the same type
         $('.notice.woo-update-api-notice').remove();
         
         const notice = $('<div class="notice notice-' + type + ' is-dismissible woo-update-api-notice"><p>' + message + '</p></div>');
         
-        // Insert after first h1 in wpbody-content or directly in admin notices area
         const $target = $('#wpbody-content .wrap h1:first').length ? 
             $('#wpbody-content .wrap h1:first') : $('.wrap h1:first');
         
@@ -248,14 +349,12 @@ jQuery(function($) {
             $('.wrap').prepend(notice);
         }
         
-        // Add dismiss functionality
         notice.find('.notice-dismiss').on('click', function() {
             notice.fadeOut(300, function() {
                 $(this).remove();
             });
         });
         
-        // Auto-dismiss success notices after 5 seconds
         if (type === 'success') {
             setTimeout(() => {
                 if (notice.is(':visible')) {
@@ -276,7 +375,6 @@ jQuery(function($) {
             woo_update_api.i18n = {};
         }
         
-        // Ensure all i18n strings exist
         const defaultI18n = {
             connecting: 'Connecting...',
             connected: 'Connected!',
@@ -293,7 +391,11 @@ jQuery(function($) {
             error: 'Error',
             price: 'Price',
             stock: 'Stock',
-            last_refresh: 'Last refresh'
+            last_refresh: 'Last refresh',
+            validating_stock: 'Validating stock...',
+            insufficient_stock: 'Insufficient stock',
+            stock_updated: 'Stock updated',
+            stock_synced: '(synced with database)'
         };
         
         for (const key in defaultI18n) {

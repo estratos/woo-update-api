@@ -2,8 +2,8 @@
 /**
  * Plugin Name: WooCommerce Update API
  * Plugin URI: https://github.com/estratos/woo-update-api
- * Description: Fetches real-time product pricing and inventory from external APIs with manual refresh capability.
- * Version: 1.1.3
+ * Description: Fetches real-time product pricing and inventory from external APIs with manual refresh capability. Includes stock synchronization.
+ * Version: 1.2.0
  * Author: Estratos
  * Author URI: https://estratos.net
  * Text Domain: woo-update-api
@@ -18,7 +18,7 @@ namespace Woo_Update_API;
 defined('ABSPATH') || exit;
 
 // Define plugin constants
-define('WOO_UPDATE_API_VERSION', '1.1.3');
+define('WOO_UPDATE_API_VERSION', '1.2.0');
 define('WOO_UPDATE_API_PATH', plugin_dir_path(__FILE__));
 define('WOO_UPDATE_API_URL', plugin_dir_url(__FILE__));
 define('WOO_UPDATE_API_FILE', __FILE__);
@@ -93,6 +93,7 @@ class Woo_Update_API
         require_once WOO_UPDATE_API_PATH . 'includes/class-price-updater.php';
         require_once WOO_UPDATE_API_PATH . 'includes/class-ajax-handler.php';
         require_once WOO_UPDATE_API_PATH . 'includes/class-api-error-manager.php';
+        require_once WOO_UPDATE_API_PATH . 'includes/class-stock-synchronizer.php'; // NUEVO
 
         if (is_admin()) {
             require_once WOO_UPDATE_API_PATH . 'admin/class-settings.php';
@@ -106,10 +107,13 @@ class Woo_Update_API
         Price_Updater::instance();
         Ajax_Handler::instance();
         API_Error_Manager::instance();
+        Stock_Synchronizer::instance(); // NUEVO - ¡IMPORTANTE!
 
         // Register AJAX handlers
         add_action('wp_ajax_woo_update_api_get_status', [API_Handler::instance(), 'ajax_get_status']);
         add_action('wp_ajax_woo_update_api_reconnect', [API_Handler::instance(), 'ajax_reconnect']);
+        add_action('wp_ajax_woo_update_api_validate_stock', [Ajax_Handler::instance(), 'ajax_validate_stock']); // NUEVO
+        add_action('wp_ajax_nopriv_woo_update_api_validate_stock', [Ajax_Handler::instance(), 'ajax_validate_stock']); // NUEVO
         
         if (is_admin()) {
             Admin\Settings::instance();
@@ -118,6 +122,16 @@ class Woo_Update_API
 
         // Add settings link to plugin page
         add_filter('plugin_action_links_' . plugin_basename(__FILE__), [$this, 'add_settings_link']);
+        
+        // Schedule daily stock sync
+        add_action('init', [$this, 'schedule_daily_sync']);
+    }
+    
+    public function schedule_daily_sync()
+    {
+        if (!wp_next_scheduled('woo_update_api_daily_stock_sync')) {
+            wp_schedule_event(time(), 'daily', 'woo_update_api_daily_stock_sync');
+        }
     }
 
     public function admin_scripts($hook)
@@ -159,7 +173,9 @@ class Woo_Update_API
                 'request_failed' => __('Request failed. Please try again.', 'woo-update-api'),
                 'refreshing' => __('Refreshing...', 'woo-update-api'),
                 'success' => __('Success!', 'woo-update-api'),
-                'error' => __('Error', 'woo-update-api')
+                'error' => __('Error', 'woo-update-api'),
+                'validating_stock' => __('Validating stock...', 'woo-update-api'), // NUEVO
+                'insufficient_stock' => __('Insufficient stock', 'woo-update-api') // NUEVO
             ]
         ]);
 
@@ -224,3 +240,20 @@ class Woo_Update_API
 
 // Initialize the plugin
 Woo_Update_API::instance();
+
+// Hook for daily stock sync
+add_action('woo_update_api_daily_stock_sync', function() {
+    $sync = Woo_Update_API\Stock_Synchronizer::instance();
+    
+    // Get all product IDs
+    $products = wc_get_products([
+        'limit' => -1,
+        'return' => 'ids'
+    ]);
+    
+    foreach ($products as $product_id) {
+        $sync->force_stock_sync($product_id);
+        // Small delay to avoid API overload
+        usleep(100000); // 0.1 second
+    }
+});

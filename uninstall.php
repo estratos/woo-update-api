@@ -13,6 +13,8 @@ if (!defined('WP_UNINSTALL_PLUGIN')) {
 // Delete plugin options
 delete_option('woo_update_api_settings');
 delete_option('woo_update_api_version');
+delete_option('woo_update_api_sync_logs'); // NUEVO
+delete_option('woo_update_api_stock_mismatches'); // NUEVO
 
 // Delete transients
 $transients = [
@@ -48,3 +50,5 @@ $wpdb->query(
 
 // Clear any scheduled hooks
 wp_clear_scheduled_hook('woo_update_api_daily_cleanup');
+wp_clear_scheduled_hook('woo_update_api_daily_stock_sync'); // NUEVO
+wp_clear_scheduled_hook('woo_update_api_async_stock_sync'); // NUEVO

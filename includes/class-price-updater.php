@@ -32,15 +32,51 @@ class Price_Updater
         add_filter('woocommerce_product_variation_get_regular_price', [$this, 'update_price'], 99, 2);
         add_filter('woocommerce_product_variation_get_sale_price', [$this, 'update_price'], 99, 2);
 
-        // Stock hooks
-        add_filter('woocommerce_product_get_stock_quantity', [$this, 'update_stock'], 99, 2);
-        add_filter('woocommerce_variation_get_stock_quantity', [$this, 'update_stock'], 99, 2);
+        // Stock hooks (solo para visualización)
+        add_filter('woocommerce_product_get_stock_quantity', [$this, 'update_stock_display'], 99, 2);
+        add_filter('woocommerce_variation_get_stock_quantity', [$this, 'update_stock_display'], 99, 2);
         add_filter('woocommerce_product_get_stock_status', [$this, 'update_stock_status'], 99, 2);
         add_filter('woocommerce_variation_get_stock_status', [$this, 'update_stock_status'], 99, 2);
 
         // Admin hooks
         add_action('admin_notices', [$this, 'admin_notice_fallback_mode']);
         add_action('woocommerce_product_options_general_product_data', [$this, 'add_refresh_ui']);
+        
+        // Detectar diferencias grandes de stock para sincronización automática
+        add_action('template_redirect', [$this, 'detect_stock_discrepancy']);
+    }
+    
+    /**
+     * DETECTAR DISCREPANCIAS DE STOCK
+     */
+    public function detect_stock_discrepancy() {
+        if (is_product()) {
+            global $post;
+            $product = wc_get_product($post->ID);
+            
+            if ($product && $product->managing_stock()) {
+                $api_data = $this->api_handler->get_product_data($product->get_id(), $product->get_sku());
+                
+                if ($api_data && isset($api_data['stock_quantity'])) {
+                    $api_stock = intval($api_data['stock_quantity']);
+                    $wc_stock = $product->get_stock_quantity();
+                    
+                    // Si diferencia es significativa (>20% o >5 unidades)
+                    $diff = abs($api_stock - $wc_stock);
+                    $threshold = max(5, $wc_stock * 0.2);
+                    
+                    if ($diff > $threshold) {
+                        // Programar sincronización async
+                        $sync = Stock_Synchronizer::instance();
+                        wp_schedule_single_event(
+                            time() + 10, // 10 segundos después
+                            'woo_update_api_async_stock_sync',
+                            [$product->get_id(), $api_stock]
+                        );
+                    }
+                }
+            }
+        }
     }
 
     public function add_refresh_ui()
@@ -57,6 +93,27 @@ class Price_Updater
         echo '<span class="spinner"></span>';
         echo esc_html__('Refresh Now', 'woo-update-api');
         echo '</button>';
+        
+        // Mostrar estado de sincronización
+        $product = wc_get_product($post->ID);
+        if ($product && $product->managing_stock()) {
+            $api_data = $this->api_handler->get_product_data($product->get_id(), $product->get_sku());
+            if ($api_data && isset($api_data['stock_quantity'])) {
+                $api_stock = $api_data['stock_quantity'];
+                $wc_stock = $product->get_stock_quantity();
+                
+                if ($api_stock != $wc_stock) {
+                    echo '<div class="notice notice-warning" style="margin-top: 10px;">';
+                    echo '<p>' . sprintf(
+                        __('Stock desincronizado: API: %d | WooCommerce: %d', 'woo-update-api'),
+                        $api_stock,
+                        $wc_stock
+                    ) . '</p>';
+                    echo '</div>';
+                }
+            }
+        }
+        
         echo '<div class="woo-update-api-result" style="margin-top: 10px;"></div>';
         echo '</div>';
     }
@@ -76,7 +133,7 @@ class Price_Updater
             return $price;
         }
 
-        // Check for price in API response (support multiple currencies)
+        // Check for price in API response
         if ($api_data && isset($api_data['price_mxn'])) {
             return floatval($api_data['price_mxn']);
         }
@@ -88,7 +145,10 @@ class Price_Updater
         return $price;
     }
 
-    public function update_stock($quantity, $product)
+    /**
+     * ACTUALIZAR STOCK PARA VISUALIZACIÓN (NO modifica BD aquí)
+     */
+    public function update_stock_display($quantity, $product)
     {
         // Don't override stock in admin area (except AJAX requests)
         if (is_admin() && !wp_doing_ajax()) {

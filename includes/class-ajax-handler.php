@@ -28,6 +28,10 @@ class Ajax_Handler
         
         // Bulk refresh
         add_action('wp_ajax_wc_update_api_bulk_refresh', [$this, 'handle_bulk_refresh']);
+        
+        // Stock validation (NUEVO)
+        add_action('wp_ajax_woo_update_api_validate_stock', [$this, 'ajax_validate_stock']);
+        add_action('wp_ajax_nopriv_woo_update_api_validate_stock', [$this, 'ajax_validate_stock']);
     }
 
     public function handle_no_permission()
@@ -35,6 +39,81 @@ class Ajax_Handler
         wp_send_json_error([
             'message' => __('You must be logged in to perform this action.', 'woo-update-api')
         ], 403);
+    }
+    
+    /**
+     * VALIDACIÓN DE STOCK VIA AJAX (NUEVO)
+     */
+    public function ajax_validate_stock() {
+        // Verify nonce
+        if (!isset($_POST['nonce']) || !wp_verify_nonce($_POST['nonce'], 'woo_update_api_nonce')) {
+            wp_send_json_error([
+                'message' => __('Security check failed.', 'woo-update-api')
+            ], 403);
+        }
+
+        // Get product data
+        $product_id = isset($_POST['product_id']) ? absint($_POST['product_id']) : 0;
+        $quantity = isset($_POST['quantity']) ? absint($_POST['quantity']) : 1;
+        $variation_id = isset($_POST['variation_id']) ? absint($_POST['variation_id']) : 0;
+        
+        if (!$product_id) {
+            wp_send_json_error([
+                'message' => __('Invalid product.', 'woo-update-api')
+            ], 400);
+        }
+
+        try {
+            $product = wc_get_product($variation_id ? $variation_id : $product_id);
+            
+            if (!$product) {
+                throw new \Exception(__('Product not found.', 'woo-update-api'));
+            }
+            
+            // Usar Stock_Synchronizer para validación
+            $sync = Stock_Synchronizer::instance();
+            
+            // Simular validación de añadir al carrito
+            $cart = WC()->cart;
+            $cart_quantity = 0;
+            
+            if ($cart) {
+                foreach ($cart->get_cart() as $cart_item) {
+                    if ($cart_item['product_id'] == $product_id && 
+                        $cart_item['variation_id'] == $variation_id) {
+                        $cart_quantity = $cart_item['quantity'];
+                        break;
+                    }
+                }
+            }
+            
+            $real_stock = $sync->get_real_stock($product_id);
+            $total_requested = $cart_quantity + $quantity;
+            
+            if ($total_requested > $real_stock) {
+                $available = max(0, $real_stock - $cart_quantity);
+                
+                wp_send_json_error([
+                    'message' => sprintf(
+                        __('Only %d available in stock.', 'woo-update-api'),
+                        $available
+                    ),
+                    'available' => $available,
+                    'requested' => $quantity
+                ]);
+            }
+            
+            wp_send_json_success([
+                'message' => __('Stock available.', 'woo-update-api'),
+                'available' => $real_stock,
+                'can_add' => true
+            ]);
+            
+        } catch (\Exception $e) {
+            wp_send_json_error([
+                'message' => $e->getMessage()
+            ], 500);
+        }
     }
 
     public function handle_manual_refresh()
@@ -93,6 +172,10 @@ class Ajax_Handler
             }
             if (isset($api_data['stock_quantity'])) {
                 update_post_meta($product_id, '_api_stock', $api_data['stock_quantity']);
+                
+                // NUEVO: Sincronizar stock real en BD
+                $product->set_stock_quantity($api_data['stock_quantity']);
+                $product->save();
             }
 
             // Format response data
@@ -112,6 +195,7 @@ class Ajax_Handler
             
             if (isset($api_data['stock_quantity'])) {
                 $response_data['stock'] = $api_data['stock_quantity'];
+                $response_data['stock_synced'] = true;
             }
 
             wp_send_json_success($response_data);
@@ -139,7 +223,7 @@ class Ajax_Handler
             ], 403);
         }
 
-        // Get product IDs (could be array or comma-separated string)
+        // Get product IDs
         $product_ids = [];
         if (isset($_POST['product_ids'])) {
             if (is_array($_POST['product_ids'])) {
@@ -158,10 +242,12 @@ class Ajax_Handler
         $results = [
             'success' => 0,
             'failed' => 0,
+            'synced' => 0,
             'details' => []
         ];
 
         $api_handler = API_Handler::instance();
+        $sync = Stock_Synchronizer::instance();
 
         foreach ($product_ids as $product_id) {
             try {
@@ -185,10 +271,19 @@ class Ajax_Handler
                 
                 if ($api_data !== false) {
                     $results['success']++;
+                    
+                    // NUEVO: Sincronizar stock si está disponible
+                    if (isset($api_data['stock_quantity'])) {
+                        $product->set_stock_quantity($api_data['stock_quantity']);
+                        $product->save();
+                        $results['synced']++;
+                    }
+                    
                     $results['details'][] = [
                         'product_id' => $product_id,
                         'status' => 'success',
-                        'name' => $product->get_name()
+                        'name' => $product->get_name(),
+                        'stock_synced' => isset($api_data['stock_quantity'])
                     ];
                 } else {
                     $results['failed']++;
@@ -211,9 +306,10 @@ class Ajax_Handler
 
         wp_send_json_success([
             'message' => sprintf(
-                __('Bulk refresh completed: %d successful, %d failed.', 'woo-update-api'),
+                __('Bulk refresh completed: %d successful, %d failed, %d stocks synced.', 'woo-update-api'),
                 $results['success'],
-                $results['failed']
+                $results['failed'],
+                $results['synced']
             ),
             'results' => $results
         ]);
