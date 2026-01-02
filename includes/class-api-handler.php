@@ -105,33 +105,7 @@ class API_Handler
         }
     }
 
-    /**
-     * GUARDAR ERROR DE API PARA MOSTRAR EN FRONTEND
-     */
-    private function store_api_error_for_frontend($product_id, $error_message, $sku = '') {
-        $errors = get_transient('woo_update_api_frontend_errors') ?: [];
-        
-        $error_key = 'product_' . $product_id;
-        $errors[$error_key] = [
-            'product_id' => $product_id,
-            'sku' => $sku,
-            'message' => $error_message,
-            'timestamp' => current_time('mysql'),
-            'displayed' => false
-        ];
-        
-        // Guardar por 30 minutos
-        set_transient('woo_update_api_frontend_errors', $errors, 30 * MINUTE_IN_SECONDS);
-        
-        error_log('[Woo Update API] Error guardado para frontend: ' . $error_message . ' (Producto: ' . $product_id . ')');
-    }
-
-    /**
-     * OBTENER ERRORES PARA MOSTRAR EN FRONTEND
-     */
-    public function get_frontend_errors() {
-        return get_transient('woo_update_api_frontend_errors') ?: [];
-    }
+      
 
     /**
      * MARCAR ERROR COMO MOSTRADO
@@ -446,4 +420,50 @@ class API_Handler
     {
         return $this->api_key;
     }
+
+//// updated metods
+    /**
+ * GUARDAR ERROR DE API PARA MOSTRAR EN FRONTEND (UNA SOLA VEZ POR SESIÓN)
+ */
+private function store_api_error_for_frontend($product_id, $error_message, $sku = '') {
+    $session_id = $this->get_session_id();
+    $errors = get_transient('woo_update_api_frontend_errors_' . $session_id) ?: [];
+    
+    $error_key = 'product_' . $product_id;
+    
+    // Solo guardar si no existe ya
+    if (!isset($errors[$error_key])) {
+        $errors[$error_key] = [
+            'product_id' => $product_id,
+            'sku' => $sku,
+            'message' => $error_message,
+            'timestamp' => current_time('mysql'),
+            'displayed' => false
+        ];
+        
+        // Guardar por 30 minutos
+        set_transient('woo_update_api_frontend_errors_' . $session_id, $errors, 30 * MINUTE_IN_SECONDS);
+        
+        error_log('[Woo Update API] Error guardado para frontend: ' . $error_message . ' (Producto: ' . $product_id . ')');
+    }
+}
+
+/**
+ * OBTENER ID ÚNICO DE SESIÓN
+ */
+private function get_session_id() {
+    if (session_id() === '') {
+        session_start();
+    }
+    return session_id();
+}
+
+/**
+ * OBTENER ERRORES PARA MOSTRAR EN FRONTEND
+ */
+public function get_frontend_errors() {
+    $session_id = $this->get_session_id();
+    return get_transient('woo_update_api_frontend_errors_' . $session_id) ?: [];
+}
+
 }
