@@ -1,5 +1,4 @@
 <?php
-
 namespace Woo_Update_API;
 
 use Exception;
@@ -43,6 +42,14 @@ class API_Handler
         add_action('wp_ajax_woo_update_api_reconnect', [$this, 'ajax_reconnect']);
     }
 
+    /**
+     * VERIFICAR SI EL MODO FALLBACK ESTÁ DESACTIVADO EN CONFIGURACIÓN
+     */
+    public function is_fallback_disabled_by_config() {
+        $settings = get_option('woo_update_api_settings', []);
+        return isset($settings['disable_fallback_mode']) && $settings['disable_fallback_mode'] === 'yes';
+    }
+
     public function get_product_data($product_id, $sku = '')
     {
         // If in fallback mode, return false to use WooCommerce defaults
@@ -78,19 +85,38 @@ class API_Handler
             // If we get here, API request failed
             $this->error_manager->increment_error();
 
-            // Check if we should activate fallback mode
-            if ($this->error_manager->get_error_count() >= $this->error_manager->get_error_threshold()) {
-                $this->activate_fallback_mode();
+            // VERIFICAR CONFIGURACIÓN: ¿Está desactivado el modo fallback?
+            if ($this->is_fallback_disabled_by_config()) {
+                // MODO DEPURACIÓN: NO usar fallback, lanzar excepción
+                error_log('[Woo Update API] Modo depuración activo - lanzando excepción en lugar de fallback');
+                throw new Exception(__('❌ ERROR CRÍTICO DE API - Modo Depuración: El servicio de precios/inventario no está disponible. Revisa los logs del servidor.', 'woo-update-api'));
+            } else {
+                // MODO PRODUCCIÓN: Activar fallback si se supera el umbral
+                if ($this->error_manager->get_error_count() >= $this->error_manager->get_error_threshold()) {
+                    $this->activate_fallback_mode();
+                }
+                return false;
             }
-
-            return false;
         } catch (Exception $e) {
             error_log('[Woo Update API] Exception: ' . $e->getMessage());
-            $this->error_manager->increment_error();
-            return false;
+            
+            // VERIFICAR CONFIGURACIÓN también en excepciones
+            if ($this->is_fallback_disabled_by_config()) {
+                // MODO DEPURACIÓN: Re-lanzar la excepción para que se maneje arriba
+                error_log('[Woo Update API] Modo depuración - re-lanzando excepción');
+                throw $e;
+            } else {
+                // MODO PRODUCCIÓN: incrementar contador y posible fallback
+                $this->error_manager->increment_error();
+                
+                // Activar fallback si es necesario
+                if ($this->error_manager->get_error_count() >= $this->error_manager->get_error_threshold()) {
+                    $this->activate_fallback_mode();
+                }
+                return false;
+            }
         }
     }
-
 
     private function make_api_request($product_id, $sku)
     {
@@ -303,7 +329,8 @@ class API_Handler
                 'fallback_mode' => $this->is_in_fallback_mode(),
                 'error_count' => $this->error_manager->get_error_count(),
                 'error_threshold' => $this->error_manager->get_error_threshold(),
-                'settings_configured' => !empty($this->api_url) && !empty($this->api_key)
+                'settings_configured' => !empty($this->api_url) && !empty($this->api_key),
+                'fallback_disabled_by_config' => $this->is_fallback_disabled_by_config() // NUEVO: mostrar estado de configuración
             ];
 
             // Test connection if configured

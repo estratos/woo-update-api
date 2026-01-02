@@ -118,6 +118,9 @@ class Price_Updater
         echo '</div>';
     }
 
+    /**
+     * ACTUALIZAR PRECIO CON MANEJO DE ERRORES
+     */
     public function update_price($price, $product)
     {
         // Don't override prices in admin area (except AJAX requests)
@@ -125,28 +128,43 @@ class Price_Updater
             return $price;
         }
 
-        // Get API data
-        $api_data = $this->api_handler->get_product_data($product->get_id(), $product->get_sku());
+        try {
+            $api_data = $this->api_handler->get_product_data($product->get_id(), $product->get_sku());
 
-        // If API is unavailable or returns false, return original price
-        if ($api_data === false) {
+            // If API is unavailable or returns false, return original price
+            if ($api_data === false) {
+                return $price;
+            }
+
+            // Check for price in API response
+            if ($api_data && isset($api_data['price_mxn'])) {
+                return floatval($api_data['price_mxn']);
+            }
+            
+            if ($api_data && isset($api_data['price'])) {
+                return floatval($api_data['price']);
+            }
+
+            return $price;
+            
+        } catch (Exception $e) {
+            // Solo mostrar error en frontend, no en admin
+            if (!is_admin() && !wp_doing_ajax()) {
+                $error_message = $e->getMessage();
+                // Añadir mensaje de error que el usuario verá
+                wc_add_notice(
+                    $error_message . ' ' . __('No se pudo obtener el precio actual.', 'woo-update-api'),
+                    'error'
+                );
+                error_log('[Price Updater Error] ' . $error_message);
+            }
+            // Devolver el precio original de WooCommerce
             return $price;
         }
-
-        // Check for price in API response
-        if ($api_data && isset($api_data['price_mxn'])) {
-            return floatval($api_data['price_mxn']);
-        }
-        
-        if ($api_data && isset($api_data['price'])) {
-            return floatval($api_data['price']);
-        }
-
-        return $price;
     }
 
     /**
-     * ACTUALIZAR STOCK PARA VISUALIZACIÓN (NO modifica BD aquí)
+     * ACTUALIZAR STOCK PARA VISUALIZACIÓN CON MANEJO DE ERRORES
      */
     public function update_stock_display($quantity, $product)
     {
@@ -155,22 +173,39 @@ class Price_Updater
             return $quantity;
         }
 
-        $api_data = $this->api_handler->get_product_data($product->get_id(), $product->get_sku());
+        try {
+            $api_data = $this->api_handler->get_product_data($product->get_id(), $product->get_sku());
 
-        // If API is unavailable or returns false, return original quantity
-        if ($api_data === false) {
+            // If API is unavailable or returns false, return original quantity
+            if ($api_data === false) {
+                return $quantity;
+            }
+
+            if ($api_data && isset($api_data['stock_quantity'])) {
+                $stock = intval($api_data['stock_quantity']);
+                // Ensure stock is not negative
+                return max(0, $stock);
+            }
+
+            return $quantity;
+            
+        } catch (Exception $e) {
+            // Solo mostrar error en frontend, no en admin
+            if (!is_admin() && !wp_doing_ajax()) {
+                $error_message = $e->getMessage();
+                wc_add_notice(
+                    $error_message . ' ' . __('No se pudo obtener el stock actual.', 'woo-update-api'),
+                    'error'
+                );
+                error_log('[Stock Display Error] ' . $error_message);
+            }
             return $quantity;
         }
-
-        if ($api_data && isset($api_data['stock_quantity'])) {
-            $stock = intval($api_data['stock_quantity']);
-            // Ensure stock is not negative
-            return max(0, $stock);
-        }
-
-        return $quantity;
     }
 
+    /**
+     * ACTUALIZAR ESTADO DE STOCK CON MANEJO DE ERRORES
+     */
     public function update_stock_status($status, $product)
     {
         // Don't override status in admin area (except AJAX requests)
@@ -178,23 +213,32 @@ class Price_Updater
             return $status;
         }
 
-        $api_data = $this->api_handler->get_product_data($product->get_id(), $product->get_sku());
+        try {
+            $api_data = $this->api_handler->get_product_data($product->get_id(), $product->get_sku());
 
-        // If API is unavailable or returns false, return original status
-        if ($api_data === false) {
+            // If API is unavailable or returns false, return original status
+            if ($api_data === false) {
+                return $status;
+            }
+
+            if ($api_data && isset($api_data['in_stock'])) {
+                return $api_data['in_stock'] ? 'instock' : 'outofstock';
+            }
+            
+            // Calculate stock status from quantity if available
+            if ($api_data && isset($api_data['stock_quantity'])) {
+                return intval($api_data['stock_quantity']) > 0 ? 'instock' : 'outofstock';
+            }
+
+            return $status;
+            
+        } catch (Exception $e) {
+            // En caso de error, mantener el estado actual
+            if (!is_admin() && !wp_doing_ajax()) {
+                error_log('[Stock Status Error] ' . $e->getMessage());
+            }
             return $status;
         }
-
-        if ($api_data && isset($api_data['in_stock'])) {
-            return $api_data['in_stock'] ? 'instock' : 'outofstock';
-        }
-        
-        // Calculate stock status from quantity if available
-        if ($api_data && isset($api_data['stock_quantity'])) {
-            return intval($api_data['stock_quantity']) > 0 ? 'instock' : 'outofstock';
-        }
-
-        return $status;
     }
 
     public function admin_notice_fallback_mode()

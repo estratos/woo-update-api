@@ -26,11 +26,11 @@ class Settings
     {
         $this->api_handler = API_Handler::instance();
         $this->error_manager = API_Error_Manager::instance();
-        
+
         add_action('admin_menu', [$this, 'add_settings_page']);
         add_action('admin_init', [$this, 'register_settings']);
         add_action('admin_enqueue_scripts', [$this, 'admin_scripts']);
-        
+
         // Clear cache on settings update
         add_action('update_option_' . $this->settings_name, [$this, 'clear_api_cache'], 10, 2);
     }
@@ -46,11 +46,11 @@ class Settings
                 '_transient_timeout_woo_update_api_product_%'
             )
         );
-        
+
         // Also clear fallback mode
         delete_transient('woo_update_api_fallback_mode');
         delete_transient('woo_update_api_fallback_start');
-        
+
         // Reset error counter
         $this->error_manager->reset_errors();
     }
@@ -168,9 +168,10 @@ class Settings
             'woo-update-api'
         );
 
+        // NUEVO: Campo para deshabilitar modo fallback
         add_settings_field(
-            'disable_fallback',
-            __('Fallback Behavior', 'woo-update-api'),
+            'disable_fallback_mode',
+            __('Modo de Depuración', 'woo-update-api'),
             [$this, 'render_disable_fallback_field'],
             'woo-update-api',
             'woo_update_api_advanced'
@@ -182,10 +183,10 @@ class Settings
         if (!current_user_can('manage_options')) {
             wp_die(__('You do not have sufficient permissions to access this page.', 'woo-update-api'));
         }
-        ?>
+?>
         <div class="wrap">
             <h1><?php echo esc_html(get_admin_page_title()); ?></h1>
-            
+
             <form method="post" action="options.php">
                 <?php
                 settings_fields($this->settings_group);
@@ -193,7 +194,7 @@ class Settings
                 submit_button(__('Save Settings', 'woo-update-api'));
                 ?>
             </form>
-            
+
             <div class="card" style="margin-top: 20px;">
                 <h2><?php _e('API Test & Tools', 'woo-update-api'); ?></h2>
                 <p>
@@ -210,7 +211,7 @@ class Settings
                 <div id="woo_update_api_test_result" style="margin-top: 10px;"></div>
             </div>
         </div>
-        <?php
+    <?php
     }
 
     public function render_main_section()
@@ -259,14 +260,17 @@ class Settings
     {
         $status = $this->error_manager->get_status();
         $fallback_active = $this->api_handler->is_in_fallback_mode();
-        ?>
+    ?>
         <div id="woo_update_api_current_status">
             <div class="notice notice-<?php echo $fallback_active ? 'warning' : 'success'; ?> inline" style="margin: 0; padding: 10px;">
                 <p>
                     <?php if ($fallback_active): ?>
                         <strong><?php _e('⚠️ Fallback Mode Active', 'woo-update-api'); ?></strong><br>
-                        <?php printf(__('API is currently unavailable. Using WooCommerce default data. Error count: %d/%d', 'woo-update-api'), 
-                            $status['errors'], $status['threshold']); ?>
+                        <?php printf(
+                            __('API is currently unavailable. Using WooCommerce default data. Error count: %d/%d', 'woo-update-api'),
+                            $status['errors'],
+                            $status['threshold']
+                        ); ?>
                     <?php else: ?>
                         <strong><?php _e('✅ API Connected', 'woo-update-api'); ?></strong><br>
                         <?php printf(__('Recent errors: %d/%d', 'woo-update-api'), $status['errors'], $status['threshold']); ?>
@@ -274,7 +278,7 @@ class Settings
                 </p>
             </div>
         </div>
-        <?php
+    <?php
     }
 
     public function render_advanced_section()
@@ -285,22 +289,25 @@ class Settings
     public function render_disable_fallback_field()
     {
         $settings = get_option($this->settings_name, []);
-        $value = $settings['disable_fallback'] ?? 'no';
-        ?>
+        $value = $settings['disable_fallback_mode'] ?? 'no';
+    ?>
         <label>
-            <input type="checkbox" name="<?php echo esc_attr($this->settings_name); ?>[disable_fallback]" value="yes" <?php checked('yes', $value); ?>>
-            <?php _e('Disable fallback to cached data', 'woo-update-api'); ?>
+            <input type="checkbox" name="woo_update_api_settings[disable_fallback_mode]" value="yes" <?php checked('yes', $value); ?>>
+            <?php _e('Desactivar Modo de Recuperación (Modo Depuración)', 'woo-update-api'); ?>
         </label>
         <p class="description">
-            <?php _e('When enabled, API errors will show immediately instead of using cached data. Not recommended for production.', 'woo-update-api'); ?>
+            <?php _e('Si está activado, cuando falle la API se mostrará un error claro en lugar de usar datos locales. Útil para depuración.', 'woo-update-api'); ?>
         </p>
-        <?php
+<?php
     }
 
     public function sanitize_settings($input)
     {
         $output = [];
-        
+
+        // Nuevo campo: desactivar modo fallback
+        $output['disable_fallback_mode'] = isset($input['disable_fallback_mode']) ? 'yes' : 'no';
+
         // Sanitize API URL
         if (isset($input['api_url'])) {
             $url = esc_url_raw(trim($input['api_url']));
@@ -314,7 +321,7 @@ class Settings
                 $output['api_url'] = $url;
             }
         }
-        
+
         // Sanitize API Key
         if (isset($input['api_key'])) {
             $output['api_key'] = sanitize_text_field(trim($input['api_key']));
@@ -326,7 +333,7 @@ class Settings
                 );
             }
         }
-        
+
         // Sanitize cache time
         if (isset($input['cache_time'])) {
             $cache_time = absint($input['cache_time']);
@@ -334,7 +341,7 @@ class Settings
         } else {
             $output['cache_time'] = 300;
         }
-        
+
         // Sanitize reconnect time
         if (isset($input['reconnect_time'])) {
             $reconnect_time = absint($input['reconnect_time']);
@@ -342,10 +349,7 @@ class Settings
         } else {
             $output['reconnect_time'] = 3600;
         }
-        
-        // Sanitize checkbox
-        $output['disable_fallback'] = isset($input['disable_fallback']) ? 'yes' : 'no';
-        
+
         return $output;
     }
 }
