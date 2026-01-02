@@ -230,7 +230,7 @@ class API_Handler
 
         // Construir URL de prueba - usar SKU de prueba
         $test_url = add_query_arg([
-            'sku' => 'EAPO1004', // SKU que sabemos que existe
+            'sku' => 'ABC0000', // SKU que sabemos que existe
             'api_key' => $this->api_key,
             'timestamp' => time()
         ], rtrim($this->api_url, '?&'));
