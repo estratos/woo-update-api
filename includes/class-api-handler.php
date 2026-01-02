@@ -52,7 +52,7 @@ class API_Handler
 
     public function get_product_data($product_id, $sku = '')
     {
-        // If in fallback mode, return false to use WooCommerce defaults
+        // Si en modo fallback, retornar false para usar WooCommerce defaults
         if ($this->is_in_fallback_mode()) {
             error_log('[Woo Update API] Currently in fallback mode - using WooCommerce defaults');
             return false;
@@ -82,40 +82,75 @@ class API_Handler
                 return $data;
             }
 
-            // If we get here, API request failed
+            // If we get here, API request failed (but no exception)
             $this->error_manager->increment_error();
-
-            // VERIFICAR CONFIGURACIÓN: ¿Está desactivado el modo fallback?
-            if ($this->is_fallback_disabled_by_config()) {
-                // MODO DEPURACIÓN: NO usar fallback, lanzar excepción
-                error_log('[Woo Update API] Modo depuración activo - lanzando excepción en lugar de fallback');
-                throw new Exception(__('❌ ERROR CRÍTICO DE API - Modo Depuración: El servicio de precios/inventario no está disponible. Revisa los logs del servidor.', 'woo-update-api'));
-            } else {
-                // MODO PRODUCCIÓN: Activar fallback si se supera el umbral
-                if ($this->error_manager->get_error_count() >= $this->error_manager->get_error_threshold()) {
-                    $this->activate_fallback_mode();
-                }
-                return false;
-            }
-        } catch (Exception $e) {
-            error_log('[Woo Update API] Exception: ' . $e->getMessage());
             
-            // VERIFICAR CONFIGURACIÓN también en excepciones
-            if ($this->is_fallback_disabled_by_config()) {
-                // MODO DEPURACIÓN: Re-lanzar la excepción para que se maneje arriba
-                error_log('[Woo Update API] Modo depuración - re-lanzando excepción');
-                throw $e;
-            } else {
-                // MODO PRODUCCIÓN: incrementar contador y posible fallback
+            // EN MODO DEPURACIÓN: No activar fallback, solo usar datos WooCommerce
+            error_log('[Woo Update API] API request failed (non-exception) - Producto: ' . $product_id . ', SKU: ' . $sku);
+            return false;
+
+        } catch (Exception $e) {
+            error_log('[Woo Update API] Exception: ' . $e->getMessage() . ' - Producto: ' . $product_id . ', SKU: ' . $sku);
+            
+            // NO incrementar error count en modo depuración (para no activar fallback)
+            if (!$this->is_fallback_disabled_by_config()) {
                 $this->error_manager->increment_error();
-                
-                // Activar fallback si es necesario
-                if ($this->error_manager->get_error_count() >= $this->error_manager->get_error_threshold()) {
-                    $this->activate_fallback_mode();
-                }
-                return false;
             }
+            
+            // GUARDAR ERROR PARA MOSTRAR EN FRONTEND
+            $this->store_api_error_for_frontend($product_id, $e->getMessage(), $sku);
+            
+            // SIEMPRE retornar false para usar datos WooCommerce
+            return false;
         }
+    }
+
+    /**
+     * GUARDAR ERROR DE API PARA MOSTRAR EN FRONTEND
+     */
+    private function store_api_error_for_frontend($product_id, $error_message, $sku = '') {
+        $errors = get_transient('woo_update_api_frontend_errors') ?: [];
+        
+        $error_key = 'product_' . $product_id;
+        $errors[$error_key] = [
+            'product_id' => $product_id,
+            'sku' => $sku,
+            'message' => $error_message,
+            'timestamp' => current_time('mysql'),
+            'displayed' => false
+        ];
+        
+        // Guardar por 30 minutos
+        set_transient('woo_update_api_frontend_errors', $errors, 30 * MINUTE_IN_SECONDS);
+        
+        error_log('[Woo Update API] Error guardado para frontend: ' . $error_message . ' (Producto: ' . $product_id . ')');
+    }
+
+    /**
+     * OBTENER ERRORES PARA MOSTRAR EN FRONTEND
+     */
+    public function get_frontend_errors() {
+        return get_transient('woo_update_api_frontend_errors') ?: [];
+    }
+
+    /**
+     * MARCAR ERROR COMO MOSTRADO
+     */
+    public function mark_error_as_displayed($product_id) {
+        $errors = get_transient('woo_update_api_frontend_errors') ?: [];
+        $error_key = 'product_' . $product_id;
+        
+        if (isset($errors[$error_key])) {
+            $errors[$error_key]['displayed'] = true;
+            set_transient('woo_update_api_frontend_errors', $errors, 30 * MINUTE_IN_SECONDS);
+        }
+    }
+
+    /**
+     * LIMPIAR TODOS LOS ERRORES DE FRONTEND
+     */
+    public function clear_frontend_errors() {
+        delete_transient('woo_update_api_frontend_errors');
     }
 
     private function make_api_request($product_id, $sku)
@@ -138,12 +173,10 @@ class API_Handler
 
         // DEBUG: Ver la URL exacta que se está enviando
         error_log('[Woo Update API DEBUG] ========== START REQUEST ==========');
+        error_log('[Woo Update API DEBUG] Producto ID: ' . $product_id . ' | SKU: ' . $sku);
         error_log('[Woo Update API DEBUG] Base API URL: ' . $this->api_url);
         error_log('[Woo Update API DEBUG] Constructed URL: ' . $endpoint);
-        error_log('[Woo Update API DEBUG] SKU: ' . $sku);
-        error_log('[Woo Update API DEBUG] Product ID: ' . $product_id);
         error_log('[Woo Update API DEBUG] API Key length: ' . strlen($this->api_key));
-        error_log('[Woo Update API DEBUG] API Key first 20 chars: ' . substr($this->api_key, 0, 20));
 
         $args = [
             'headers' => [
@@ -157,8 +190,6 @@ class API_Handler
             'redirection' => 5
         ];
 
-        error_log('[Woo Update API DEBUG] Request args: ' . print_r($args, true));
-
         // Hacer la solicitud
         $response = wp_safe_remote_get($endpoint, $args);
 
@@ -170,14 +201,19 @@ class API_Handler
 
         $status_code = wp_remote_retrieve_response_code($response);
         $response_body = wp_remote_retrieve_body($response);
-        $response_headers = wp_remote_retrieve_headers($response);
 
         error_log('[Woo Update API DEBUG] ========== RESPONSE ==========');
         error_log('[Woo Update API DEBUG] Status Code: ' . $status_code);
-        error_log('[Woo Update API DEBUG] Response Headers: ' . print_r($response_headers, true));
         error_log('[Woo Update API DEBUG] Response Body (first 1000 chars): ' . substr($response_body, 0, 1000));
 
         if ($status_code !== 200) {
+            // LOG ESPECIAL PARA 404
+            if ($status_code === 404) {
+                error_log('[Woo Update API DEBUG] ⚠️ API 404 ERROR - Producto no encontrado');
+                error_log('[Woo Update API DEBUG] Producto ID: ' . $product_id . ' | SKU: ' . $sku);
+                error_log('[Woo Update API DEBUG] URL enviada: ' . str_replace($this->api_key, 'API_KEY_REDACTED', $endpoint));
+            }
+            
             error_log('[Woo Update API DEBUG] ERROR - Full response: ' . $response_body);
             throw new Exception(sprintf(__('API returned status: %d', 'woo-update-api'), $status_code));
         }
@@ -191,7 +227,6 @@ class API_Handler
         }
 
         error_log('[Woo Update API DEBUG] JSON decoded successfully');
-        error_log('[Woo Update API DEBUG] Data structure: ' . print_r($data, true));
 
         // Check for API-specific error indicators
         if (isset($data['error']) || (isset($data['success']) && $data['success'] === false)) {
@@ -268,6 +303,12 @@ class API_Handler
 
     private function activate_fallback_mode()
     {
+        // EN MODO DEPURACIÓN: NUNCA ACTIVAR FALLBACK
+        if ($this->is_fallback_disabled_by_config()) {
+            error_log('[Woo Update API] Modo depuración activo - NO se activará fallback mode');
+            return;
+        }
+
         if (!$this->fallback_mode) {
             $this->fallback_mode = true;
             set_transient('woo_update_api_fallback_mode', true, $this->reconnect_time);
@@ -297,6 +338,11 @@ class API_Handler
 
     public function is_in_fallback_mode()
     {
+        // EN MODO DEPURACIÓN: NUNCA ESTAR EN MODO FALLBACK
+        if ($this->is_fallback_disabled_by_config()) {
+            return false;
+        }
+
         // Check transient first
         $fallback_transient = get_transient('woo_update_api_fallback_mode');
 
@@ -330,7 +376,8 @@ class API_Handler
                 'error_count' => $this->error_manager->get_error_count(),
                 'error_threshold' => $this->error_manager->get_error_threshold(),
                 'settings_configured' => !empty($this->api_url) && !empty($this->api_key),
-                'fallback_disabled_by_config' => $this->is_fallback_disabled_by_config() // NUEVO: mostrar estado de configuración
+                'fallback_disabled_by_config' => $this->is_fallback_disabled_by_config(),
+                'frontend_errors_count' => count($this->get_frontend_errors())
             ];
 
             // Test connection if configured
@@ -370,6 +417,9 @@ class API_Handler
                     '_transient_woo_update_api_product_%'
                 )
             );
+
+            // Clear frontend errors
+            $this->clear_frontend_errors();
 
             // Test connection
             $connected = $this->test_connection();

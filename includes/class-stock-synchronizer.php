@@ -1,6 +1,7 @@
 <?php
-
 namespace Woo_Update_API;
+
+use Exception;
 
 defined('ABSPATH') || exit;
 
@@ -75,59 +76,82 @@ class Stock_Synchronizer
      */
     public function validate_add_to_cart($passed, $product_id, $quantity, $variation_id = 0)
     {
-        $product = wc_get_product($variation_id ? $variation_id : $product_id);
+        try {
+            $product = wc_get_product($variation_id ? $variation_id : $product_id);
 
-        if (!$product || !$product->managing_stock()) {
-            return $passed;
-        }
+            if (!$product || !$product->managing_stock()) {
+                return $passed;
+            }
 
-        // 1. Obtener stock REAL (de API)
-        $real_stock = $this->get_real_stock($product_id);
+            // DEBUG LOG
+            error_log('[CART VALIDATION] Inicio validación producto: ' . $product_id);
 
-        // DEBUG: Agregar log para ver el stock obtenido
-        error_log('[CART VALIDATION] Producto ' . $product_id . ' - Stock real: ' . $real_stock . ' - Cantidad solicitada: ' . $quantity);
+            // 1. Obtener stock REAL (de API o WooCommerce)
+            $real_stock = $this->get_real_stock($product_id);
 
-        // 2. Obtener cantidad ya en carrito
-        $cart = WC()->cart;
-        $cart_quantity = 0;
+            // 2. Obtener cantidad ya en carrito
+            $cart = WC()->cart;
+            $cart_quantity = 0;
 
-        if ($cart) {
-            foreach ($cart->get_cart() as $cart_item_key => $cart_item) {
-                if (
-                    $cart_item['product_id'] == $product_id &&
-                    $cart_item['variation_id'] == $variation_id
-                ) {
-                    $cart_quantity = $cart_item['quantity'];
-                    break;
+            if ($cart) {
+                foreach ($cart->get_cart() as $cart_item_key => $cart_item) {
+                    if (
+                        $cart_item['product_id'] == $product_id &&
+                        $cart_item['variation_id'] == $variation_id
+                    ) {
+                        $cart_quantity = $cart_item['quantity'];
+                        break;
+                    }
                 }
             }
-        }
 
-        // 3. Validar stock total (carrito + nuevo)
-        $total_requested = $cart_quantity + $quantity;
+            // DEBUG LOG
+            error_log('[CART VALIDATION] Producto: ' . $product_id . 
+                     ' | Stock real: ' . $real_stock . 
+                     ' | En carrito: ' . $cart_quantity . 
+                     ' | Solicitado: ' . $quantity);
 
-        if ($total_requested > $real_stock) {
-            $available = max(0, $real_stock - $cart_quantity);
+            // 3. Validar stock total (carrito + nuevo)
+            $total_requested = $cart_quantity + $quantity;
 
-            wc_add_notice(
-                sprintf(
-                    __('No hay suficiente stock. Solo %d disponible(s).', 'woo-update-api'),
-                    $available
-                ),
-                'error'
-            );
+            if ($total_requested > $real_stock) {
+                $available = max(0, $real_stock - $cart_quantity);
 
-            // NO programar sincronización aquí - podría sobrescribir con valor incorrecto
-            // En su lugar, forzar una sincronización real con la API
-            if ($real_stock <= 0) {
-                // Si el stock es 0 o muy bajo, verificar si es un error de API
-                $this->force_stock_sync($product_id);
+                error_log('[CART VALIDATION] ERROR - Stock insuficiente. Disponible: ' . $available);
+
+                wc_add_notice(
+                    sprintf(
+                        __('No hay suficiente stock. Solo %d disponible(s).', 'woo-update-api'),
+                        $available
+                    ),
+                    'error'
+                );
+
+                // Forzar sincronización si el stock es 0
+                if ($real_stock <= 0) {
+                    $this->force_stock_sync($product_id);
+                }
+
+                return false;
             }
 
-            return false;
+            error_log('[CART VALIDATION] ÉXITO - Stock suficiente');
+            return $passed;
+            
+        } catch (Exception $e) {
+            // Si hay error, permitir la adición al carrito pero loguear
+            error_log('[CART VALIDATION] Error en validación: ' . $e->getMessage());
+            
+            // En modo depuración, mostrar error al usuario
+            if ($this->api_handler->is_fallback_disabled_by_config() && !is_admin()) {
+                wc_add_notice(
+                    __('Error al verificar stock. La compra puede no completarse.', 'woo-update-api'),
+                    'error'
+                );
+            }
+            
+            return $passed; // Permitir continuar
         }
-
-        return $passed;
     }
 
     /**
@@ -135,35 +159,46 @@ class Stock_Synchronizer
      */
     public function validate_cart_stock()
     {
-        $cart = WC()->cart;
+        try {
+            $cart = WC()->cart;
 
-        if (!$cart || $cart->is_empty()) {
-            return;
-        }
-
-        foreach ($cart->get_cart() as $cart_item_key => $cart_item) {
-            $product = $cart_item['data'];
-
-            if (!$product->managing_stock()) {
-                continue;
+            if (!$cart || $cart->is_empty()) {
+                return;
             }
 
-            // Obtener stock real de API
-            $real_stock = $this->get_real_stock($product->get_id());
+            foreach ($cart->get_cart() as $cart_item_key => $cart_item) {
+                $product = $cart_item['data'];
 
-            // Verificar si hay suficiente stock
-            if ($cart_item['quantity'] > $real_stock) {
-                $cart->set_quantity($cart_item_key, $real_stock);
+                if (!$product->managing_stock()) {
+                    continue;
+                }
 
+                // Obtener stock real de API
+                $real_stock = $this->get_real_stock($product->get_id());
+
+                // Verificar si hay suficiente stock
+                if ($cart_item['quantity'] > $real_stock) {
+                    $cart->set_quantity($cart_item_key, $real_stock);
+
+                    wc_add_notice(
+                        sprintf(
+                            __('Stock actualizado para "%s". Solo %d disponible(s).', 'woo-update-api'),
+                            $product->get_name(),
+                            $real_stock
+                        ),
+                        'notice'
+                    );
+                }
+            }
+        } catch (Exception $e) {
+            // Solo mostrar error en frontend
+            if (!is_admin() && !wp_doing_ajax()) {
                 wc_add_notice(
-                    sprintf(
-                        __('Stock actualizado para "%s". Solo %d disponible(s).', 'woo-update-api'),
-                        $product->get_name(),
-                        $real_stock
-                    ),
-                    'notice'
+                    __('Error al validar stock del carrito. Por favor, inténtalo de nuevo.', 'woo-update-api'),
+                    'error'
                 );
             }
+            error_log('[Stock Synchronizer Error] validate_cart_stock: ' . $e->getMessage());
         }
     }
 
@@ -172,31 +207,36 @@ class Stock_Synchronizer
      */
     public function sync_stock_before_checkout()
     {
-        $cart = WC()->cart;
+        try {
+            $cart = WC()->cart;
 
-        if (!$cart || $cart->is_empty()) {
-            return;
-        }
-
-        foreach ($cart->get_cart() as $cart_item_key => $cart_item) {
-            $product = $cart_item['data'];
-
-            if (!$product->managing_stock()) {
-                continue;
+            if (!$cart || $cart->is_empty()) {
+                return;
             }
 
-            // Obtener stock real de API
-            $real_stock = $this->get_real_stock($product->get_id());
-            $wc_stock = $product->get_stock_quantity();
+            foreach ($cart->get_cart() as $cart_item_key => $cart_item) {
+                $product = $cart_item['data'];
 
-            // Si hay diferencia, ACTUALIZAR BD
-            if ($real_stock !== $wc_stock) {
-                $product->set_stock_quantity($real_stock);
-                $product->save();
+                if (!$product->managing_stock()) {
+                    continue;
+                }
 
-                // Registrar para debugging
-                $this->log_sync($product->get_id(), $wc_stock, $real_stock);
+                // Obtener stock real de API
+                $real_stock = $this->get_real_stock($product->get_id());
+                $wc_stock = $product->get_stock_quantity();
+
+                // Si hay diferencia, ACTUALIZAR BD
+                if ($real_stock !== $wc_stock) {
+                    $product->set_stock_quantity($real_stock);
+                    $product->save();
+
+                    // Registrar para debugging
+                    $this->log_sync($product->get_id(), $wc_stock, $real_stock);
+                }
             }
+        } catch (Exception $e) {
+            error_log('[Stock Synchronizer Error] sync_stock_before_checkout: ' . $e->getMessage());
+            // No bloquear checkout por error de sincronización
         }
     }
 
@@ -205,21 +245,25 @@ class Stock_Synchronizer
      */
     public function update_stock_after_purchase($order_id)
     {
-        $order = wc_get_order($order_id);
+        try {
+            $order = wc_get_order($order_id);
 
-        if (!$order) {
-            return;
-        }
-
-        foreach ($order->get_items() as $item) {
-            $product = $item->get_product();
-
-            if (!$product || !$product->managing_stock()) {
-                continue;
+            if (!$order) {
+                return;
             }
 
-            // Forzar sincronización con API después de compra
-            $this->force_stock_sync($product->get_id());
+            foreach ($order->get_items() as $item) {
+                $product = $item->get_product();
+
+                if (!$product || !$product->managing_stock()) {
+                    continue;
+                }
+
+                // Forzar sincronización con API después de compra
+                $this->force_stock_sync($product->get_id());
+            }
+        } catch (Exception $e) {
+            error_log('[Stock Synchronizer Error] update_stock_after_purchase: ' . $e->getMessage());
         }
     }
 
@@ -228,21 +272,27 @@ class Stock_Synchronizer
      */
     public function validate_cart_item_quantity($quantity, $cart_item_key, $cart_item)
     {
-        $product = $cart_item['data'];
+        try {
+            $product = $cart_item['data'];
 
-        if (!$product->managing_stock()) {
+            if (!$product->managing_stock()) {
+                return $quantity;
+            }
+
+            // Obtener stock real
+            $real_stock = $this->get_real_stock($product->get_id());
+
+            // Limitar a stock disponible
+            if ($quantity > $real_stock) {
+                $quantity = $real_stock;
+            }
+
             return $quantity;
+            
+        } catch (Exception $e) {
+            error_log('[Stock Synchronizer Error] validate_cart_item_quantity: ' . $e->getMessage());
+            return $quantity; // Retornar cantidad original
         }
-
-        // Obtener stock real
-        $real_stock = $this->get_real_stock($product->get_id());
-
-        // Limitar a stock disponible
-        if ($quantity > $real_stock) {
-            $quantity = $real_stock;
-        }
-
-        return $quantity;
     }
 
     /**
@@ -250,65 +300,79 @@ class Stock_Synchronizer
      */
     public function force_stock_sync($product_id)
     {
-        $product = wc_get_product($product_id);
+        try {
+            $product = wc_get_product($product_id);
 
-        if (!$product || !$product->managing_stock()) {
+            if (!$product || !$product->managing_stock()) {
+                return false;
+            }
+
+            // Obtener datos frescos de API (bypass cache)
+            $cache_key = 'woo_update_api_product_' . md5($product_id . $product->get_sku());
+            delete_transient($cache_key);
+
+            // Obtener datos frescos
+            $api_data = $this->api_handler->get_product_data($product_id, $product->get_sku());
+
+            if ($api_data && isset($api_data['stock_quantity'])) {
+                $api_stock = intval($api_data['stock_quantity']);
+                $current_stock = $product->get_stock_quantity();
+
+                if ($api_stock !== $current_stock) {
+                    $product->set_stock_quantity($api_stock);
+                    $product->save();
+
+                    $this->log_sync($product_id, $current_stock, $api_stock);
+                    return true;
+                }
+            }
+
+            return false;
+            
+        } catch (Exception $e) {
+            error_log('[Stock Synchronizer Error] force_stock_sync: ' . $e->getMessage());
             return false;
         }
-
-        // Obtener datos frescos de API (bypass cache)
-        $cache_key = 'woo_update_api_product_' . md5($product_id . $product->get_sku());
-        delete_transient($cache_key);
-
-        // Obtener datos frescos
-        $api_data = $this->api_handler->get_product_data($product_id, $product->get_sku());
-
-        if ($api_data && isset($api_data['stock_quantity'])) {
-            $api_stock = intval($api_data['stock_quantity']);
-            $current_stock = $product->get_stock_quantity();
-
-            if ($api_stock !== $current_stock) {
-                $product->set_stock_quantity($api_stock);
-                $product->save();
-
-                $this->log_sync($product_id, $current_stock, $api_stock);
-                return true;
-            }
-        }
-
-        return false;
     }
 
     /**
-     * OBTENER STOCK REAL (API o WooCommerce)
+     * OBTENER STOCK REAL (API o WooCommerce) - VERSIÓN MÁS SEGURA
      */
     public function get_real_stock($product_id)
     {
-        $product = wc_get_product($product_id);
+        try {
+            $product = wc_get_product($product_id);
 
-        if (!$product) {
-            error_log('[GET REAL STOCK] Producto no encontrado: ' . $product_id);
-            return 0;
+            if (!$product) {
+                error_log('[GET REAL STOCK] Producto no encontrado: ' . $product_id);
+                return 0;
+            }
+
+            // 1. Intentar obtener de API
+            $api_data = $this->api_handler->get_product_data(
+                $product->get_id(),
+                $product->get_sku()
+            );
+
+            error_log('[GET REAL STOCK] Datos API para producto ' . $product_id . ': ' . print_r($api_data, true));
+
+            if ($api_data && isset($api_data['stock_quantity'])) {
+                $stock = intval($api_data['stock_quantity']);
+                error_log('[GET REAL STOCK] Stock de API: ' . $stock);
+                return $stock;
+            }
+
+            // 2. Fallback a stock de WooCommerce
+            $wc_stock = $product->get_stock_quantity();
+            error_log('[GET REAL STOCK] Fallback a stock WC: ' . $wc_stock);
+            return $wc_stock;
+            
+        } catch (Exception $e) {
+            // Si hay una excepción, usar stock de WooCommerce
+            error_log('[GET REAL STOCK] Excepción capturada: ' . $e->getMessage());
+            $product = wc_get_product($product_id);
+            return $product ? $product->get_stock_quantity() : 0;
         }
-
-        // 1. Intentar obtener de API
-        $api_data = $this->api_handler->get_product_data(
-            $product->get_id(),
-            $product->get_sku()
-        );
-
-        error_log('[GET REAL STOCK] Datos API para producto ' . $product_id . ': ' . print_r($api_data, true));
-
-        if ($api_data && isset($api_data['stock_quantity'])) {
-            $stock = intval($api_data['stock_quantity']);
-            error_log('[GET REAL STOCK] Stock de API: ' . $stock);
-            return $stock;
-        }
-
-        // 2. Fallback a stock de WooCommerce
-        $wc_stock = $product->get_stock_quantity();
-        error_log('[GET REAL STOCK] Fallback a stock WC: ' . $wc_stock);
-        return $wc_stock;
     }
 
     /**
@@ -316,17 +380,21 @@ class Stock_Synchronizer
      */
     public function async_stock_sync($product_id, $api_stock)
     {
-        $product = wc_get_product($product_id);
+        try {
+            $product = wc_get_product($product_id);
 
-        if ($product && $product->managing_stock()) {
-            $current_stock = $product->get_stock_quantity();
+            if ($product && $product->managing_stock()) {
+                $current_stock = $product->get_stock_quantity();
 
-            if ($api_stock !== $current_stock) {
-                $product->set_stock_quantity($api_stock);
-                $product->save();
+                if ($api_stock !== $current_stock) {
+                    $product->set_stock_quantity($api_stock);
+                    $product->save();
 
-                $this->log_sync($product_id, $current_stock, $api_stock, 'async');
+                    $this->log_sync($product_id, $current_stock, $api_stock, 'async');
+                }
             }
+        } catch (Exception $e) {
+            error_log('[Stock Synchronizer Error] async_stock_sync: ' . $e->getMessage());
         }
     }
 

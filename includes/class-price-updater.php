@@ -44,6 +44,13 @@ class Price_Updater
         
         // Detectar diferencias grandes de stock para sincronización automática
         add_action('template_redirect', [$this, 'detect_stock_discrepancy']);
+        
+        // NUEVO: Mostrar errores en carrito y checkout también
+        add_action('woocommerce_before_cart', [$this, 'display_cart_api_errors']);
+        add_action('woocommerce_before_checkout_form', [$this, 'display_cart_api_errors']);
+        
+        // NUEVO: Mostrar errores en páginas de producto
+        add_action('woocommerce_before_single_product', [$this, 'display_product_api_errors']);
     }
     
     /**
@@ -119,10 +126,9 @@ class Price_Updater
     }
 
     /**
-     * ACTUALIZAR PRECIO CON MANEJO DE ERRORES
+     * ACTUALIZAR PRECIO CON MANEJO DE ERRORES Y NOTIFICACIONES
      */
-    public function update_price($price, $product)
-    {
+    public function update_price($price, $product) {
         // Don't override prices in admin area (except AJAX requests)
         if (is_admin() && !wp_doing_ajax()) {
             return $price;
@@ -133,6 +139,7 @@ class Price_Updater
 
             // If API is unavailable or returns false, return original price
             if ($api_data === false) {
+                $this->maybe_show_api_error($product->get_id());
                 return $price;
             }
 
@@ -148,17 +155,8 @@ class Price_Updater
             return $price;
             
         } catch (Exception $e) {
-            // Solo mostrar error en frontend, no en admin
-            if (!is_admin() && !wp_doing_ajax()) {
-                $error_message = $e->getMessage();
-                // Añadir mensaje de error que el usuario verá
-                wc_add_notice(
-                    $error_message . ' ' . __('No se pudo obtener el precio actual.', 'woo-update-api'),
-                    'error'
-                );
-                error_log('[Price Updater Error] ' . $error_message);
-            }
-            // Devolver el precio original de WooCommerce
+            // Esto no debería pasar ahora, pero por seguridad
+            $this->maybe_show_api_error($product->get_id());
             return $price;
         }
     }
@@ -166,8 +164,7 @@ class Price_Updater
     /**
      * ACTUALIZAR STOCK PARA VISUALIZACIÓN CON MANEJO DE ERRORES
      */
-    public function update_stock_display($quantity, $product)
-    {
+    public function update_stock_display($quantity, $product) {
         // Don't override stock in admin area (except AJAX requests)
         if (is_admin() && !wp_doing_ajax()) {
             return $quantity;
@@ -178,6 +175,7 @@ class Price_Updater
 
             // If API is unavailable or returns false, return original quantity
             if ($api_data === false) {
+                $this->maybe_show_api_error($product->get_id());
                 return $quantity;
             }
 
@@ -190,15 +188,7 @@ class Price_Updater
             return $quantity;
             
         } catch (Exception $e) {
-            // Solo mostrar error en frontend, no en admin
-            if (!is_admin() && !wp_doing_ajax()) {
-                $error_message = $e->getMessage();
-                wc_add_notice(
-                    $error_message . ' ' . __('No se pudo obtener el stock actual.', 'woo-update-api'),
-                    'error'
-                );
-                error_log('[Stock Display Error] ' . $error_message);
-            }
+            $this->maybe_show_api_error($product->get_id());
             return $quantity;
         }
     }
@@ -206,8 +196,7 @@ class Price_Updater
     /**
      * ACTUALIZAR ESTADO DE STOCK CON MANEJO DE ERRORES
      */
-    public function update_stock_status($status, $product)
-    {
+    public function update_stock_status($status, $product) {
         // Don't override status in admin area (except AJAX requests)
         if (is_admin() && !wp_doing_ajax()) {
             return $status;
@@ -218,6 +207,7 @@ class Price_Updater
 
             // If API is unavailable or returns false, return original status
             if ($api_data === false) {
+                $this->maybe_show_api_error($product->get_id());
                 return $status;
             }
 
@@ -234,15 +224,129 @@ class Price_Updater
             
         } catch (Exception $e) {
             // En caso de error, mantener el estado actual
-            if (!is_admin() && !wp_doing_ajax()) {
-                error_log('[Stock Status Error] ' . $e->getMessage());
-            }
+            $this->maybe_show_api_error($product->get_id());
             return $status;
+        }
+    }
+
+    /**
+     * MOSTRAR ERROR DE API EN FRONTEND (UNA SOLA VEZ POR PRODUCTO)
+     */
+    private function maybe_show_api_error($product_id) {
+        // Solo en frontend
+        if (is_admin() || wp_doing_ajax()) {
+            return;
+        }
+        
+        // Solo si estamos en modo depuración
+        if (!$this->api_handler->is_fallback_disabled_by_config()) {
+            return; // Modo producción, no mostrar errores
+        }
+        
+        // Obtener errores no mostrados
+        $errors = $this->api_handler->get_frontend_errors();
+        $error_key = 'product_' . $product_id;
+        
+        if (isset($errors[$error_key]) && !$errors[$error_key]['displayed']) {
+            $error = $errors[$error_key];
+            
+            // Mostrar notificación de WooCommerce
+            wc_add_notice(
+                sprintf(
+                    __('⚠️ ERROR DE API: %s (Producto ID: %d, SKU: %s)', 'woo-update-api'),
+                    $error['message'],
+                    $product_id,
+                    $error['sku'] ?: 'N/A'
+                ),
+                'error'
+            );
+            
+            // Marcar como mostrado
+            $this->api_handler->mark_error_as_displayed($product_id);
+            
+            error_log('[Frontend Error Displayed] Producto ' . $product_id . ': ' . $error['message']);
+        }
+    }
+
+    /**
+     * MOSTRAR TODOS LOS ERRORES DE API EN CARRITO/CHECKOUT
+     */
+    public function display_cart_api_errors() {
+        // Solo si estamos en modo depuración
+        if (!$this->api_handler->is_fallback_disabled_by_config()) {
+            return;
+        }
+        
+        $errors = $this->api_handler->get_frontend_errors();
+        
+        if (!empty($errors)) {
+            $error_count = count($errors);
+            $product_ids = array_map(function($error) {
+                return $error['product_id'];
+            }, $errors);
+            
+            // Mostrar solo si hay errores no mostrados
+            $has_unshown_errors = false;
+            foreach ($errors as $error) {
+                if (!$error['displayed']) {
+                    $has_unshown_errors = true;
+                    break;
+                }
+            }
+            
+            if ($has_unshown_errors) {
+                wc_add_notice(
+                    sprintf(
+                        __('⚠️ ADVERTENCIA: %d producto(s) están usando datos locales debido a errores de API. Revisa los logs para más detalles.', 'woo-update-api'),
+                        $error_count
+                    ),
+                    'warning'
+                );
+            }
+        }
+    }
+
+    /**
+     * MOSTRAR ERRORES DE API EN PÁGINA DE PRODUCTO
+     */
+    public function display_product_api_errors() {
+        global $product;
+        
+        if (!$product) {
+            return;
+        }
+        
+        // Solo si estamos en modo depuración
+        if (!$this->api_handler->is_fallback_disabled_by_config()) {
+            return;
+        }
+        
+        $product_id = $product->get_id();
+        $errors = $this->api_handler->get_frontend_errors();
+        $error_key = 'product_' . $product_id;
+        
+        if (isset($errors[$error_key]) && !$errors[$error_key]['displayed']) {
+            $error = $errors[$error_key];
+            
+            // Mostrar banner especial en página de producto
+            echo '<div class="woocommerce-message woocommerce-error" style="background-color: #f8d7da; border-color: #f5c6cb; color: #721c24; margin: 20px 0; padding: 15px; border-radius: 4px;">';
+            echo '<strong>⚠️ ERROR DE CONEXIÓN CON API</strong><br>';
+            echo 'Este producto está usando datos locales de WooCommerce.<br>';
+            echo '<small>Error: ' . esc_html($error['message']) . '</small>';
+            echo '</div>';
+            
+            // Marcar como mostrado
+            $this->api_handler->mark_error_as_displayed($product_id);
         }
     }
 
     public function admin_notice_fallback_mode()
     {
+        // EN MODO DEPURACIÓN: NO mostrar el notice de fallback
+        if ($this->api_handler->is_fallback_disabled_by_config()) {
+            return;
+        }
+        
         if ($this->api_handler->is_in_fallback_mode()) {
             ?>
             <div class="notice notice-warning is-dismissible">
