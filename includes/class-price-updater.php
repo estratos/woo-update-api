@@ -162,8 +162,8 @@ class Price_Updater
             return $quantity;
         }
 
-        if ($api_data && isset($api_data['stock_quantity'])) {
-            $stock = intval($api_data['stock_quantity']);
+        if ($api_data && isset($api_data['totalstock'])) {
+            $stock = intval($api_data['totalstock']);
             // Ensure stock is not negative
             return max(0, $stock);
         }
