@@ -190,8 +190,8 @@ class Price_Updater
         }
         
         // Calculate stock status from quantity if available
-        if ($api_data && isset($api_data['stock_quantity'])) {
-            return intval($api_data['stock_quantity']) > 0 ? 'instock' : 'outofstock';
+        if ($api_data && isset($api_data['totalstock'])) {
+            return intval($api_data['totalstock']) > 0 ? 'instock' : 'outofstock';
         }
 
         return $status;

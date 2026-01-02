@@ -223,8 +223,8 @@ class Stock_Synchronizer {
         // Obtener datos frescos
         $api_data = $this->api_handler->get_product_data($product_id, $product->get_sku());
         
-        if ($api_data && isset($api_data['stock_quantity'])) {
-            $api_stock = intval($api_data['stock_quantity']);
+        if ($api_data && isset($api_data['totalstock'])) {
+            $api_stock = intval($api_data['totalstock']);
             $current_stock = $product->get_stock_quantity();
             
             if ($api_stock !== $current_stock) {
@@ -255,8 +255,8 @@ class Stock_Synchronizer {
             $product->get_sku()
         );
         
-        if ($api_data && isset($api_data['stock_quantity'])) {
-            return intval($api_data['stock_quantity']);
+        if ($api_data && isset($api_data['totalstock'])) {
+            return intval($api_data['totalstock']);
         }
         
         // 2. Fallback a stock de WooCommerce
