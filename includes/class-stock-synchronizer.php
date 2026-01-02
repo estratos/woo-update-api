@@ -263,8 +263,8 @@ class Stock_Synchronizer
         // Obtener datos frescos
         $api_data = $this->api_handler->get_product_data($product_id, $product->get_sku());
 
-        if ($api_data && isset($api_data['totalstock'])) {
-            $api_stock = intval($api_data['totalstock']);
+        if ($api_data && isset($api_data['stock_quantity'])) {
+            $api_stock = intval($api_data['stock_quantity']);
             $current_stock = $product->get_stock_quantity();
 
             if ($api_stock !== $current_stock) {
@@ -299,8 +299,8 @@ class Stock_Synchronizer
 
         error_log('[GET REAL STOCK] Datos API para producto ' . $product_id . ': ' . print_r($api_data, true));
 
-        if ($api_data && isset($api_data['totalstock'])) {
-            $stock = intval($api_data['totalstock']);
+        if ($api_data && isset($api_data['stock_quantity'])) {
+            $stock = intval($api_data['stock_quantity']);
             error_log('[GET REAL STOCK] Stock de API: ' . $stock);
             return $stock;
         }
