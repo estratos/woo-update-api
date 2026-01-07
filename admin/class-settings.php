@@ -223,7 +223,7 @@ class Settings
     {
         $settings = get_option($this->settings_name, []);
         $value = esc_attr($settings['api_url'] ?? '');
-        echo '<input type="url" class="regular-text" name="' . esc_attr($this->settings_name) . '[api_url]" value="' . $value . '" placeholder="https://api.example.com/products" required>';
+        echo '<input type="url" class="regular-text" name="' . esc_attr($this->settings_name) . '[api_url]" value="' . $value . '" placeholder="https://api.example.com/api/woocommerce/v1/products" required>';
         echo '<p class="description">' . esc_html__('Full URL to your API endpoint', 'woo-update-api') . '</p>';
     }
 
