@@ -40,6 +40,7 @@ class API_Handler
         // Register AJAX handlers
         add_action('wp_ajax_woo_update_api_get_status', [$this, 'ajax_get_status']);
         add_action('wp_ajax_woo_update_api_reconnect', [$this, 'ajax_reconnect']);
+        add_action('wp_ajax_woo_update_api_sync_to_db', [$this, 'ajax_sync_to_db']); // NUEVO
     }
 
     /**
@@ -105,18 +106,17 @@ class API_Handler
         }
     }
 
-      
-
     /**
      * MARCAR ERROR COMO MOSTRADO
      */
     public function mark_error_as_displayed($product_id) {
-        $errors = get_transient('woo_update_api_frontend_errors') ?: [];
+        $session_id = $this->get_session_id();
+        $errors = get_transient('woo_update_api_frontend_errors_' . $session_id) ?: [];
         $error_key = 'product_' . $product_id;
         
         if (isset($errors[$error_key])) {
             $errors[$error_key]['displayed'] = true;
-            set_transient('woo_update_api_frontend_errors', $errors, 30 * MINUTE_IN_SECONDS);
+            set_transient('woo_update_api_frontend_errors_' . $session_id, $errors, 30 * MINUTE_IN_SECONDS);
         }
     }
 
@@ -124,7 +124,8 @@ class API_Handler
      * LIMPIAR TODOS LOS ERRORES DE FRONTEND
      */
     public function clear_frontend_errors() {
-        delete_transient('woo_update_api_frontend_errors');
+        $session_id = $this->get_session_id();
+        delete_transient('woo_update_api_frontend_errors_' . $session_id);
     }
 
     private function make_api_request($product_id, $sku)
@@ -146,11 +147,14 @@ class API_Handler
         $endpoint = add_query_arg($query_args, $base_url);
 
         // DEBUG: Ver la URL exacta que se está enviando
-        error_log('[Woo Update API DEBUG] ========== START REQUEST ==========');
-        error_log('[Woo Update API DEBUG] Producto ID: ' . $product_id . ' | SKU: ' . $sku);
-        error_log('[Woo Update API DEBUG] Base API URL: ' . $this->api_url);
-        error_log('[Woo Update API DEBUG] Constructed URL: ' . $endpoint);
-        error_log('[Woo Update API DEBUG] API Key length: ' . strlen($this->api_key));
+        $debug = defined('WP_DEBUG') && WP_DEBUG && isset($_GET['debug_api']);
+        if ($debug) {
+            error_log('[Woo Update API DEBUG] ========== START REQUEST ==========');
+            error_log('[Woo Update API DEBUG] Producto ID: ' . $product_id . ' | SKU: ' . $sku);
+            error_log('[Woo Update API DEBUG] Base API URL: ' . $this->api_url);
+            error_log('[Woo Update API DEBUG] Constructed URL: ' . str_replace($this->api_key, 'API_KEY_REDACTED', $endpoint));
+            error_log('[Woo Update API DEBUG] API Key length: ' . strlen($this->api_key));
+        }
 
         $args = [
             'headers' => [
@@ -168,17 +172,21 @@ class API_Handler
         $response = wp_safe_remote_get($endpoint, $args);
 
         if (is_wp_error($response)) {
-            error_log('[Woo Update API DEBUG] WP_Error: ' . $response->get_error_message());
-            error_log('[Woo Update API DEBUG] WP_Error code: ' . $response->get_error_code());
+            if ($debug) {
+                error_log('[Woo Update API DEBUG] WP_Error: ' . $response->get_error_message());
+                error_log('[Woo Update API DEBUG] WP_Error code: ' . $response->get_error_code());
+            }
             throw new Exception($response->get_error_message());
         }
 
         $status_code = wp_remote_retrieve_response_code($response);
         $response_body = wp_remote_retrieve_body($response);
 
-        error_log('[Woo Update API DEBUG] ========== RESPONSE ==========');
-        error_log('[Woo Update API DEBUG] Status Code: ' . $status_code);
-        error_log('[Woo Update API DEBUG] Response Body (first 1000 chars): ' . substr($response_body, 0, 1000));
+        if ($debug) {
+            error_log('[Woo Update API DEBUG] ========== RESPONSE ==========');
+            error_log('[Woo Update API DEBUG] Status Code: ' . $status_code);
+            error_log('[Woo Update API DEBUG] Response Body (first 1000 chars): ' . substr($response_body, 0, 1000));
+        }
 
         if ($status_code !== 200) {
             // LOG ESPECIAL PARA 404
@@ -188,35 +196,47 @@ class API_Handler
                 error_log('[Woo Update API DEBUG] URL enviada: ' . str_replace($this->api_key, 'API_KEY_REDACTED', $endpoint));
             }
             
-            error_log('[Woo Update API DEBUG] ERROR - Full response: ' . $response_body);
+            if ($debug) {
+                error_log('[Woo Update API DEBUG] ERROR - Full response: ' . $response_body);
+            }
             throw new Exception(sprintf(__('API returned status: %d', 'woo-update-api'), $status_code));
         }
 
         $data = json_decode($response_body, true);
 
         if (json_last_error() !== JSON_ERROR_NONE) {
-            error_log('[Woo Update API DEBUG] JSON Parse Error: ' . json_last_error_msg());
-            error_log('[Woo Update API DEBUG] Raw response that failed to parse: ' . $response_body);
+            if ($debug) {
+                error_log('[Woo Update API DEBUG] JSON Parse Error: ' . json_last_error_msg());
+                error_log('[Woo Update API DEBUG] Raw response that failed to parse: ' . $response_body);
+            }
             throw new Exception(__('Invalid JSON response from API', 'woo-update-api'));
         }
 
-        error_log('[Woo Update API DEBUG] JSON decoded successfully');
+        if ($debug) {
+            error_log('[Woo Update API DEBUG] JSON decoded successfully');
+        }
 
         // Check for API-specific error indicators
         if (isset($data['error']) || (isset($data['success']) && $data['success'] === false)) {
             $error_msg = $data['message'] ?? __('API returned an error', 'woo-update-api');
-            error_log('[Woo Update API DEBUG] API returned error: ' . $error_msg);
+            if ($debug) {
+                error_log('[Woo Update API DEBUG] API returned error: ' . $error_msg);
+            }
             throw new Exception($error_msg);
         }
 
         // Return product data
         if (isset($data['product'])) {
-            error_log('[Woo Update API DEBUG] Returning product data');
-            error_log('[Woo Update API DEBUG] Product data keys: ' . implode(', ', array_keys($data['product'])));
+            if ($debug) {
+                error_log('[Woo Update API DEBUG] Returning product data');
+                error_log('[Woo Update API DEBUG] Product data keys: ' . implode(', ', array_keys($data['product'])));
+            }
             return $data['product'];
         }
 
-        error_log('[Woo Update API DEBUG] No product key found, returning full response');
+        if ($debug) {
+            error_log('[Woo Update API DEBUG] No product key found, returning full response');
+        }
         return $data;
     }
 
@@ -411,6 +431,94 @@ class API_Handler
         }
     }
 
+    /**
+     * NUEVO: AJAX PARA SINCRONIZAR PRECIO Y STOCK A BD
+     */
+    public function ajax_sync_to_db() {
+        check_ajax_referer('wc_update_api_sync_db', 'nonce');
+        
+        if (!current_user_can('edit_products')) {
+            wp_send_json_error(['message' => __('Permission denied', 'woo-update-api')]);
+        }
+        
+        $product_id = isset($_POST['product_id']) ? absint($_POST['product_id']) : 0;
+        
+        if (!$product_id) {
+            wp_send_json_error(['message' => __('Invalid product ID', 'woo-update-api')]);
+        }
+        
+        try {
+            $product = wc_get_product($product_id);
+            if (!$product) {
+                throw new \Exception(__('Product not found', 'woo-update-api'));
+            }
+            
+            $api_data = $this->get_product_data($product_id, $product->get_sku());
+            
+            if ($api_data === false) {
+                throw new \Exception(__('Could not get API data', 'woo-update-api'));
+            }
+            
+            $updates = [];
+            
+            // Actualizar precio en BD si existe
+            if (isset($api_data['price_mxn']) || isset($api_data['price'])) {
+                $price = isset($api_data['price_mxn']) ? floatval($api_data['price_mxn']) : floatval($api_data['price']);
+                
+                // Actualizar metadatos de precio
+                update_post_meta($product_id, '_price', $price);
+                update_post_meta($product_id, '_regular_price', $price);
+                
+                // Para variaciones
+                if ($product->is_type('variation')) {
+                    update_post_meta($product_id, '_variation_price', $price);
+                    // Actualizar también el precio mínimo/máximo del padre
+                    $parent_id = $product->get_parent_id();
+                    wc_delete_product_transients($parent_id);
+                }
+                
+                $updates['price'] = wc_price($price);
+            }
+            
+            // Actualizar stock en BD si existe y el producto maneja stock
+            if (isset($api_data['stock_quantity']) && $product->managing_stock()) {
+                $api_stock = intval($api_data['stock_quantity']);
+                $current_stock = $product->get_stock_quantity();
+                
+                if ($api_stock !== $current_stock) {
+                    $product->set_stock_quantity($api_stock);
+                    $product->save();
+                    
+                    $updates['stock'] = $api_stock;
+                    $updates['stock_diff'] = $current_stock . ' → ' . $api_stock;
+                }
+            }
+            
+            // Marcar como sincronizado
+            update_post_meta($product_id, '_last_api_sync', current_time('mysql'));
+            update_post_meta($product_id, '_api_data_cache', $api_data);
+            
+            // Limpiar cache
+            wc_delete_product_transients($product_id);
+            
+            if (empty($updates)) {
+                wp_send_json_success([
+                    'message' => __('Product already synced with API data', 'woo-update-api')
+                ]);
+            } else {
+                wp_send_json_success([
+                    'message' => __('Price and stock synchronized to database', 'woo-update-api'),
+                    'updates' => $updates
+                ]);
+            }
+            
+        } catch (\Exception $e) {
+            wp_send_json_error([
+                'message' => $e->getMessage()
+            ]);
+        }
+    }
+
     public function get_api_url()
     {
         return $this->api_url;
@@ -421,49 +529,53 @@ class API_Handler
         return $this->api_key;
     }
 
-//// updated metods
     /**
- * GUARDAR ERROR DE API PARA MOSTRAR EN FRONTEND (UNA SOLA VEZ POR SESIÓN)
- */
-private function store_api_error_for_frontend($product_id, $error_message, $sku = '') {
-    $session_id = $this->get_session_id();
-    $errors = get_transient('woo_update_api_frontend_errors_' . $session_id) ?: [];
-    
-    $error_key = 'product_' . $product_id;
-    
-    // Solo guardar si no existe ya
-    if (!isset($errors[$error_key])) {
-        $errors[$error_key] = [
-            'product_id' => $product_id,
-            'sku' => $sku,
-            'message' => $error_message,
-            'timestamp' => current_time('mysql'),
-            'displayed' => false
-        ];
+     * GUARDAR ERROR DE API PARA MOSTRAR EN FRONTEND
+     */
+    private function store_api_error_for_frontend($product_id, $error_message, $sku = '') {
+        $session_id = $this->get_session_id();
+        $errors = get_transient('woo_update_api_frontend_errors_' . $session_id) ?: [];
         
-        // Guardar por 30 minutos
-        set_transient('woo_update_api_frontend_errors_' . $session_id, $errors, 30 * MINUTE_IN_SECONDS);
+        $error_key = 'product_' . $product_id;
         
-        error_log('[Woo Update API] Error guardado para frontend: ' . $error_message . ' (Producto: ' . $product_id . ')');
+        // Solo guardar si no existe ya
+        if (!isset($errors[$error_key])) {
+            $errors[$error_key] = [
+                'product_id' => $product_id,
+                'sku' => $sku,
+                'message' => $error_message,
+                'timestamp' => current_time('mysql'),
+                'displayed' => false
+            ];
+            
+            // Guardar por 30 minutos
+            set_transient('woo_update_api_frontend_errors_' . $session_id, $errors, 30 * MINUTE_IN_SECONDS);
+            
+            error_log('[Woo Update API] Error guardado para frontend: ' . $error_message . ' (Producto: ' . $product_id . ')');
+        }
     }
-}
 
-/**
- * OBTENER ID ÚNICO DE SESIÓN
- */
-private function get_session_id() {
-    if (session_id() === '') {
-        session_start();
+    /**
+     * OBTENER ID DE SESIÓN CORREGIDO
+     */
+    private function get_session_id() {
+        // Usar el ID de sesión de WooCommerce si está disponible
+        if (function_exists('WC') && WC()->session) {
+            return WC()->session->get_customer_id();
+        }
+        
+        // Fallback a cookies
+        if (!session_id() && !headers_sent()) {
+            @session_start();
+        }
+        return session_id() ?: md5($_SERVER['REMOTE_ADDR'] . $_SERVER['HTTP_USER_AGENT']);
     }
-    return session_id();
-}
 
-/**
- * OBTENER ERRORES PARA MOSTRAR EN FRONTEND
- */
-public function get_frontend_errors() {
-    $session_id = $this->get_session_id();
-    return get_transient('woo_update_api_frontend_errors_' . $session_id) ?: [];
-}
-
+    /**
+     * OBTENER ERRORES PARA MOSTRAR EN FRONTEND
+     */
+    public function get_frontend_errors() {
+        $session_id = $this->get_session_id();
+        return get_transient('woo_update_api_frontend_errors_' . $session_id) ?: [];
+    }
 }

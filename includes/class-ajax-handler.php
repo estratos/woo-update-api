@@ -29,9 +29,12 @@ class Ajax_Handler
         // Bulk refresh
         add_action('wp_ajax_wc_update_api_bulk_refresh', [$this, 'handle_bulk_refresh']);
         
-        // Stock validation (NUEVO)
+        // Stock validation
         add_action('wp_ajax_woo_update_api_validate_stock', [$this, 'ajax_validate_stock']);
         add_action('wp_ajax_nopriv_woo_update_api_validate_stock', [$this, 'ajax_validate_stock']);
+        
+        // NUEVO: Sync to DB
+        add_action('wp_ajax_woo_update_api_sync_to_db', [API_Handler::instance(), 'ajax_sync_to_db']);
     }
 
     public function handle_no_permission()
@@ -42,7 +45,7 @@ class Ajax_Handler
     }
     
     /**
-     * VALIDACIÓN DE STOCK VIA AJAX (NUEVO)
+     * VALIDACIÓN DE STOCK VIA AJAX
      */
     public function ajax_validate_stock() {
         // Verify nonce
@@ -73,7 +76,10 @@ class Ajax_Handler
             // Usar Stock_Synchronizer para validación
             $sync = Stock_Synchronizer::instance();
             
-            // Simular validación de añadir al carrito
+            // Obtener stock real (con actualización si es necesario)
+            $real_stock = $sync->get_real_stock($product_id);
+            
+            // Calcular cantidad en carrito
             $cart = WC()->cart;
             $cart_quantity = 0;
             
@@ -87,7 +93,6 @@ class Ajax_Handler
                 }
             }
             
-            $real_stock = $sync->get_real_stock($product_id);
             $total_requested = $cart_quantity + $quantity;
             
             if ($total_requested > $real_stock) {
@@ -167,15 +172,24 @@ class Ajax_Handler
             update_post_meta($product_id, '_wc_update_api_last_refresh', $last_refresh);
             
             // Update product meta with API data for reference
-            if (isset($api_data['price_mxn'])) {
-                update_post_meta($product_id, '_api_price', $api_data['price_mxn']);
+            $updates = [];
+            
+            if (isset($api_data['price_mxn']) || isset($api_data['price'])) {
+                $price = isset($api_data['price_mxn']) ? $api_data['price_mxn'] : $api_data['price'];
+                update_post_meta($product_id, '_api_price', $price);
+                $updates['price'] = wc_price($price);
             }
+            
             if (isset($api_data['stock_quantity'])) {
                 update_post_meta($product_id, '_api_stock', $api_data['stock_quantity']);
+                $updates['stock'] = $api_data['stock_quantity'];
                 
-                // NUEVO: Sincronizar stock real en BD
-                $product->set_stock_quantity($api_data['stock_quantity']);
-                $product->save();
+                // NUEVO: Sincronizar stock real en BD (opcional)
+                if ($product->managing_stock()) {
+                    $product->set_stock_quantity($api_data['stock_quantity']);
+                    $product->save();
+                    $updates['stock_synced'] = true;
+                }
             }
 
             // Format response data
@@ -184,19 +198,9 @@ class Ajax_Handler
                 'last_refresh' => date_i18n(
                     get_option('date_format') . ' ' . get_option('time_format'),
                     strtotime($last_refresh)
-                )
+                ),
+                'updates' => $updates
             ];
-
-            // Add price and stock if available
-            if (isset($api_data['price_mxn'])) {
-                $response_data['price'] = wc_price($api_data['price_mxn']);
-                $response_data['price_raw'] = $api_data['price_mxn'];
-            }
-            
-            if (isset($api_data['stock_quantity'])) {
-                $response_data['stock'] = $api_data['stock_quantity'];
-                $response_data['stock_synced'] = true;
-            }
 
             wp_send_json_success($response_data);
             
@@ -272,18 +276,26 @@ class Ajax_Handler
                 if ($api_data !== false) {
                     $results['success']++;
                     
-                    // NUEVO: Sincronizar stock si está disponible
-                    if (isset($api_data['stock_quantity'])) {
+                    // NUEVO: Sincronizar a BD si está disponible
+                    if (isset($api_data['stock_quantity']) && $product->managing_stock()) {
                         $product->set_stock_quantity($api_data['stock_quantity']);
                         $product->save();
                         $results['synced']++;
+                    }
+                    
+                    // NUEVO: Sincronizar precio también
+                    if (isset($api_data['price_mxn']) || isset($api_data['price'])) {
+                        $price = isset($api_data['price_mxn']) ? $api_data['price_mxn'] : $api_data['price'];
+                        update_post_meta($product_id, '_price', $price);
+                        update_post_meta($product_id, '_regular_price', $price);
                     }
                     
                     $results['details'][] = [
                         'product_id' => $product_id,
                         'status' => 'success',
                         'name' => $product->get_name(),
-                        'stock_synced' => isset($api_data['stock_quantity'])
+                        'stock_synced' => isset($api_data['stock_quantity']) && $product->managing_stock(),
+                        'price_synced' => isset($api_data['price_mxn']) || isset($api_data['price'])
                     ];
                 } else {
                     $results['failed']++;

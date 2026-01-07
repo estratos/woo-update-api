@@ -3,7 +3,7 @@
  * Plugin Name: WooCommerce Update API
  * Plugin URI: https://github.com/estratos/woo-update-api
  * Description: Fetches real-time product pricing and inventory from external APIs with manual refresh capability. Includes stock synchronization.
- * Version: 1.2.2
+ * Version: 1.3.0
  * Author: Estratos
  * Author URI: https://estratos.net
  * Text Domain: woo-update-api
@@ -18,7 +18,7 @@ namespace Woo_Update_API;
 defined('ABSPATH') || exit;
 
 // Define plugin constants
-define('WOO_UPDATE_API_VERSION', '1.2.2');
+define('WOO_UPDATE_API_VERSION', '1.3.0');
 define('WOO_UPDATE_API_PATH', plugin_dir_path(__FILE__));
 define('WOO_UPDATE_API_URL', plugin_dir_url(__FILE__));
 define('WOO_UPDATE_API_FILE', __FILE__);
@@ -93,7 +93,7 @@ class Woo_Update_API
         require_once WOO_UPDATE_API_PATH . 'includes/class-price-updater.php';
         require_once WOO_UPDATE_API_PATH . 'includes/class-ajax-handler.php';
         require_once WOO_UPDATE_API_PATH . 'includes/class-api-error-manager.php';
-        require_once WOO_UPDATE_API_PATH . 'includes/class-stock-synchronizer.php'; // NUEVO
+        require_once WOO_UPDATE_API_PATH . 'includes/class-stock-synchronizer.php';
 
         if (is_admin()) {
             require_once WOO_UPDATE_API_PATH . 'admin/class-settings.php';
@@ -107,13 +107,14 @@ class Woo_Update_API
         Price_Updater::instance();
         Ajax_Handler::instance();
         API_Error_Manager::instance();
-        Stock_Synchronizer::instance(); // NUEVO - ¡IMPORTANTE!
+        Stock_Synchronizer::instance();
 
         // Register AJAX handlers
         add_action('wp_ajax_woo_update_api_get_status', [API_Handler::instance(), 'ajax_get_status']);
         add_action('wp_ajax_woo_update_api_reconnect', [API_Handler::instance(), 'ajax_reconnect']);
-        add_action('wp_ajax_woo_update_api_validate_stock', [Ajax_Handler::instance(), 'ajax_validate_stock']); // NUEVO
-        add_action('wp_ajax_nopriv_woo_update_api_validate_stock', [Ajax_Handler::instance(), 'ajax_validate_stock']); // NUEVO
+        add_action('wp_ajax_woo_update_api_validate_stock', [Ajax_Handler::instance(), 'ajax_validate_stock']);
+        add_action('wp_ajax_nopriv_woo_update_api_validate_stock', [Ajax_Handler::instance(), 'ajax_validate_stock']);
+        add_action('wp_ajax_woo_update_api_sync_to_db', [API_Handler::instance(), 'ajax_sync_to_db']);
         
         if (is_admin()) {
             Admin\Settings::instance();
@@ -131,6 +132,11 @@ class Woo_Update_API
     {
         if (!wp_next_scheduled('woo_update_api_daily_stock_sync')) {
             wp_schedule_event(time(), 'daily', 'woo_update_api_daily_stock_sync');
+        }
+        
+        // NUEVO: Schedule hourly sync for critical products
+        if (!wp_next_scheduled('woo_update_api_hourly_sync')) {
+            wp_schedule_event(time(), 'hourly', 'woo_update_api_hourly_sync');
         }
     }
 
@@ -162,6 +168,7 @@ class Woo_Update_API
         wp_localize_script('woo-update-api-admin', 'woo_update_api', [
             'ajaxurl' => admin_url('admin-ajax.php'),
             'nonce' => wp_create_nonce('woo_update_api_nonce'),
+            'sync_nonce' => wp_create_nonce('wc_update_api_sync_db'),
             'debug' => defined('WP_DEBUG') && WP_DEBUG,
             'i18n' => [
                 'connecting' => __('Connecting...', 'woo-update-api'),
@@ -174,8 +181,10 @@ class Woo_Update_API
                 'refreshing' => __('Refreshing...', 'woo-update-api'),
                 'success' => __('Success!', 'woo-update-api'),
                 'error' => __('Error', 'woo-update-api'),
-                'validating_stock' => __('Validating stock...', 'woo-update-api'), // NUEVO
-                'insufficient_stock' => __('Insufficient stock', 'woo-update-api') // NUEVO
+                'validating_stock' => __('Validating stock...', 'woo-update-api'),
+                'insufficient_stock' => __('Insufficient stock', 'woo-update-api'),
+                'syncing' => __('Syncing to database...', 'woo-update-api'),
+                'sync_complete' => __('Sync complete!', 'woo-update-api')
             ]
         ]);
 
@@ -192,8 +201,10 @@ class Woo_Update_API
                 margin-top: 0;
                 margin-bottom: 10px;
             }
-            .wc-update-api-refresh {
+            .wc-update-api-refresh,
+            .wc-update-api-sync-db {
                 position: relative;
+                margin-right: 5px;
             }
             .wc-update-api-refresh .spinner {
                 float: none;
@@ -202,6 +213,9 @@ class Woo_Update_API
             }
             .wc-update-api-refresh.loading .spinner {
                 visibility: visible;
+            }
+            .woo-update-api-result {
+                margin-top: 10px;
             }
             .woo-update-api-status {
                 margin-top: 10px;
@@ -222,6 +236,16 @@ class Woo_Update_API
                 background-color: #fff3cd;
                 border: 1px solid #ffeaa7;
                 color: #856404;
+            }
+            .sync-status {
+                margin-top: 10px;
+                padding: 10px;
+                background: #f5f5f5;
+                border-radius: 4px;
+                font-size: 12px;
+            }
+            .sync-status span {
+                font-weight: bold;
             }
         ');
     }
@@ -257,3 +281,46 @@ add_action('woo_update_api_daily_stock_sync', function() {
         usleep(100000); // 0.1 second
     }
 });
+
+// Hook for hourly sync of products with recent activity
+add_action('woo_update_api_hourly_sync', function() {
+    $sync = Woo_Update_API\Stock_Synchronizer::instance();
+    
+    // Get products with recent sync (last 24 hours)
+    global $wpdb;
+    $product_ids = $wpdb->get_col(
+        $wpdb->prepare(
+            "SELECT post_id FROM {$wpdb->postmeta} 
+            WHERE meta_key = '_last_api_sync' 
+            AND meta_value >= %s",
+            date('Y-m-d H:i:s', time() - 86400) // Last 24 hours
+        )
+    );
+    
+    foreach ($product_ids as $product_id) {
+        $sync->force_stock_sync($product_id);
+        usleep(50000); // 0.05 second
+    }
+});
+
+// Debug mode activation
+if (isset($_GET['debug_api'])) {
+    add_action('init', function() {
+        if (current_user_can('administrator')) {
+            error_log('[API DEBUG] Debug mode activated');
+            
+            // Enable detailed logging
+            add_filter('woo_update_api_debug', '__return_true');
+            
+            // Show debug info in admin bar
+            add_action('admin_bar_menu', function($wp_admin_bar) {
+                $wp_admin_bar->add_node([
+                    'id'    => 'api-debug',
+                    'title' => 'API Debug ON',
+                    'href'  => '#',
+                    'meta'  => ['class' => 'api-debug-node']
+                ]);
+            }, 999);
+        }
+    });
+}
