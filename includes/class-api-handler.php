@@ -30,17 +30,17 @@ class API_Handler
 
         $this->error_manager = API_Error_Manager::instance();
 
-        // Admin AJAX (siempre activos)
+        // Admin AJAX
         add_action('wp_ajax_woo_update_api_get_status', [$this, 'ajax_get_status']);
         add_action('wp_ajax_woo_update_api_reconnect', [$this, 'ajax_reconnect']);
     }
 
     /**
-     * OBTENER DATOS DE PRODUCTO CON CACHE MEJORADO
+     * OBTENER DATOS DE PRODUCTO
      */
     public function get_product_data($product_id, $sku = '')
     {
-        // Cache por producto (5 minutos por defecto)
+        // Cache por producto
         $cache_key = 'woo_api_product_' . md5($product_id . $sku);
         $cached_data = get_transient($cache_key);
 
@@ -59,6 +59,7 @@ class API_Handler
             if ($data !== false) {
                 // Cachear respuesta exitosa
                 set_transient($cache_key, $data, $this->cache_time);
+                $this->error_manager->reset_errors();
                 return $data;
             }
 
@@ -67,8 +68,9 @@ class API_Handler
         } catch (Exception $e) {
             error_log('[API Error] ' . $e->getMessage() . ' - Producto: ' . $product_id);
             
-            // Cachear error por menos tiempo (30 segundos)
-            set_transient($cache_key, false, 30);
+            // Cachear error por menos tiempo
+            set_transient($cache_key, false, 60);
+            $this->error_manager->increment_error();
             
             return false;
         }
@@ -127,7 +129,7 @@ class API_Handler
     }
 
     /**
-     * MÉTODOS DE ADMIN (INTACTOS)
+     * MÉTODOS ADMIN
      */
     public function test_connection()
     {
@@ -173,7 +175,9 @@ class API_Handler
         try {
             $status = [
                 'connected' => false,
-                'settings_configured' => !empty($this->api_url) && !empty($this->api_key)
+                'settings_configured' => !empty($this->api_url) && !empty($this->api_key),
+                'error_count' => $this->error_manager->get_error_count(),
+                'fallback_mode' => $this->error_manager->is_fallback_active()
             ];
 
             if ($status['settings_configured']) {
@@ -196,7 +200,7 @@ class API_Handler
         }
 
         try {
-            // Limpiar caché de productos
+            // Limpiar caché
             global $wpdb;
             $wpdb->query(
                 $wpdb->prepare(
@@ -204,6 +208,8 @@ class API_Handler
                     '%_transient_woo_api_product_%'
                 )
             );
+
+            $this->error_manager->reset_errors();
 
             $connected = $this->test_connection();
 
