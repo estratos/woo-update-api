@@ -6,7 +6,7 @@ defined('ABSPATH') || exit;
 class API_Error_Manager
 {
     private static $instance = null;
-    const ERROR_THRESHOLD = 5;
+    const ERROR_THRESHOLD = 10;
     const TRANSIENT_KEY = 'woo_update_api_error_count';
     const FALLBACK_MODE_KEY = 'woo_update_api_fallback_active';
 
@@ -43,11 +43,6 @@ class API_Error_Manager
         return $count ? (int) $count : 0;
     }
 
-    public function get_error_threshold()
-    {
-        return self::ERROR_THRESHOLD;
-    }
-
     public function is_fallback_active()
     {
         $fallback = get_transient(self::FALLBACK_MODE_KEY);
@@ -62,14 +57,5 @@ class API_Error_Manager
     private function deactivate_fallback_mode()
     {
         delete_transient(self::FALLBACK_MODE_KEY);
-    }
-
-    public function get_status()
-    {
-        return [
-            'errors' => $this->get_error_count(),
-            'threshold' => $this->get_error_threshold(),
-            'fallback_active' => $this->is_fallback_active()
-        ];
     }
 }
