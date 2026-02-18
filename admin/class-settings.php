@@ -9,8 +9,6 @@ defined('ABSPATH') || exit;
 class Settings
 {
     private static $instance = null;
-    private $settings_group = 'woo_update_api_settings_group';
-    private $settings_name = 'woo_update_api_settings';
     private $api_handler;
     private $error_manager;
 
@@ -26,72 +24,55 @@ class Settings
     {
         $this->api_handler = API_Handler::instance();
         $this->error_manager = API_Error_Manager::instance();
-
-        add_action('admin_menu', [$this, 'add_settings_page']);
-        add_action('admin_init', [$this, 'register_settings']);
-        add_action('admin_enqueue_scripts', [$this, 'admin_scripts']);
-
-        // Clear cache on settings update
-        add_action('update_option_' . $this->settings_name, [$this, 'clear_api_cache'], 10, 2);
+        $this->init_hooks();
     }
 
-    public function clear_api_cache($old_value, $new_value)
+    private function init_hooks()
     {
-        // Clear all product caches when settings change
-        global $wpdb;
-        $wpdb->query(
-            $wpdb->prepare(
-                "DELETE FROM {$wpdb->options} WHERE option_name LIKE %s OR option_name LIKE %s",
-                '_transient_woo_update_api_product_%',
-                '_transient_timeout_woo_update_api_product_%'
-            )
-        );
-
-        // Also clear fallback mode
-        delete_transient('woo_update_api_fallback_mode');
-        delete_transient('woo_update_api_fallback_start');
-
-        // Reset error counter
-        $this->error_manager->reset_errors();
+        add_action('admin_menu', [$this, 'add_settings_page']);
+        add_action('admin_init', [$this, 'register_settings']);
+        add_action('admin_enqueue_scripts', [$this, 'enqueue_admin_scripts']);
     }
 
     public function add_settings_page()
     {
         add_options_page(
             __('WooCommerce Update API Settings', 'woo-update-api'),
-            __('WC Update API', 'woo-update-api'),
+            __('Woo Update API', 'woo-update-api'),
             'manage_options',
             'woo-update-api',
             [$this, 'render_settings_page']
         );
     }
 
-    public function admin_scripts($hook)
+    public function enqueue_admin_scripts($hook)
     {
-        if ($hook !== 'settings_page_woo-update-api') {
+        if ('settings_page_woo-update-api' !== $hook) {
             return;
         }
 
+        wp_enqueue_style(
+            'woo-update-api-admin',
+            WOO_UPDATE_API_URL . 'assets/css/admin.css',
+            [],
+            WOO_UPDATE_API_VERSION
+        );
+
         wp_enqueue_script(
-            'woo-update-api-settings',
-            WOO_UPDATE_API_URL . 'assets/js/settings.js',
+            'woo-update-api-admin',
+            WOO_UPDATE_API_URL . 'assets/js/admin.js',
             ['jquery'],
             WOO_UPDATE_API_VERSION,
             true
         );
 
-        wp_localize_script('woo-update-api-settings', 'woo_update_api_settings', [
+        wp_localize_script('woo-update-api-admin', 'woo_update_api', [
             'ajaxurl' => admin_url('admin-ajax.php'),
             'nonce' => wp_create_nonce('woo_update_api_nonce'),
             'i18n' => [
-                'testing_connection' => __('Testing connection...', 'woo-update-api'),
-                'connection_success' => __('Connection successful!', 'woo-update-api'),
-                'connection_failed' => __('Connection failed:', 'woo-update-api'),
-                'reconnecting' => __('Reconnecting...', 'woo-update-api'),
-                'reconnect_success' => __('Reconnected successfully!', 'woo-update-api'),
-                'reconnect_failed' => __('Reconnect failed:', 'woo-update-api'),
-                'clearing_cache' => __('Clearing cache...', 'woo-update-api'),
-                'cache_cleared' => __('Cache cleared!', 'woo-update-api')
+                'checking' => __('Checking connection...', 'woo-update-api'),
+                'success' => __('Connected!', 'woo-update-api'),
+                'error' => __('Connection failed', 'woo-update-api')
             ]
         ]);
     }
@@ -99,22 +80,22 @@ class Settings
     public function register_settings()
     {
         register_setting(
-            $this->settings_group,
-            $this->settings_name,
-            [$this, 'sanitize_settings']
+            'woo_update_api_settings',
+            'woo_update_api_settings',
+            [$this, 'validate_settings']
         );
 
-        // Main settings section
+        // API Configuration Section
         add_settings_section(
             'woo_update_api_main',
-            __('API Connection Settings', 'woo-update-api'),
+            __('API Configuration', 'woo-update-api'),
             [$this, 'render_main_section'],
             'woo-update-api'
         );
 
         add_settings_field(
             'api_url',
-            __('API Endpoint URL', 'woo-update-api'),
+            __('API URL', 'woo-update-api'),
             [$this, 'render_api_url_field'],
             'woo-update-api',
             'woo_update_api_main'
@@ -128,12 +109,20 @@ class Settings
             'woo_update_api_main'
         );
 
+        // Cache Settings Section
+        add_settings_section(
+            'woo_update_api_cache',
+            __('Cache Settings', 'woo-update-api'),
+            [$this, 'render_cache_section'],
+            'woo-update-api'
+        );
+
         add_settings_field(
             'cache_time',
-            __('Cache Duration (seconds)', 'woo-update-api'),
+            __('Cache Time (seconds)', 'woo-update-api'),
             [$this, 'render_cache_time_field'],
             'woo-update-api',
-            'woo_update_api_main'
+            'woo_update_api_cache'
         );
 
         add_settings_field(
@@ -141,10 +130,10 @@ class Settings
             __('Reconnect Time (seconds)', 'woo-update-api'),
             [$this, 'render_reconnect_time_field'],
             'woo-update-api',
-            'woo_update_api_main'
+            'woo_update_api_cache'
         );
 
-        // Status section
+        // Status Section
         add_settings_section(
             'woo_update_api_status',
             __('API Status', 'woo-update-api'),
@@ -160,196 +149,398 @@ class Settings
             'woo_update_api_status'
         );
 
-        // Advanced section
+        // Debug Section
         add_settings_section(
-            'woo_update_api_advanced',
-            __('Advanced Settings', 'woo-update-api'),
-            [$this, 'render_advanced_section'],
+            'woo_update_api_debug',
+            __('Debug Options', 'woo-update-api'),
+            [$this, 'render_debug_section'],
             'woo-update-api'
         );
 
-        // NUEVO: Campo para deshabilitar modo fallback
         add_settings_field(
-            'disable_fallback_mode',
-            __('Modo de Depuración', 'woo-update-api'),
-            [$this, 'render_disable_fallback_field'],
+            'clear_cache',
+            __('Clear Cache', 'woo-update-api'),
+            [$this, 'render_clear_cache_field'],
             'woo-update-api',
-            'woo_update_api_advanced'
+            'woo_update_api_debug'
         );
     }
 
     public function render_settings_page()
     {
         if (!current_user_can('manage_options')) {
-            wp_die(__('You do not have sufficient permissions to access this page.', 'woo-update-api'));
+            return;
         }
-?>
+
+        ?>
         <div class="wrap">
             <h1><?php echo esc_html(get_admin_page_title()); ?></h1>
-
-            <form method="post" action="options.php">
+            
+            <?php settings_errors('woo_update_api_settings'); ?>
+            
+            <form action="options.php" method="post">
                 <?php
-                settings_fields($this->settings_group);
+                settings_fields('woo_update_api_settings');
                 do_settings_sections('woo-update-api');
                 submit_button(__('Save Settings', 'woo-update-api'));
                 ?>
             </form>
-
-            <div class="card" style="margin-top: 20px;">
-                <h2><?php _e('API Test & Tools', 'woo-update-api'); ?></h2>
-                <p>
-                    <button type="button" id="woo_update_api_test_connection" class="button button-secondary">
-                        <?php _e('Test API Connection', 'woo-update-api'); ?>
-                    </button>
-                    <button type="button" id="woo_update_api_reconnect" class="button button-secondary">
-                        <?php _e('Reconnect & Reset', 'woo-update-api'); ?>
-                    </button>
-                    <button type="button" id="woo_update_api_clear_cache" class="button button-secondary">
-                        <?php _e('Clear All Cache', 'woo-update-api'); ?>
-                    </button>
-                </p>
-                <div id="woo_update_api_test_result" style="margin-top: 10px;"></div>
+            
+            <div class="woo-update-api-info">
+                <h2><?php _e('System Information', 'woo-update-api'); ?></h2>
+                <table class="widefat fixed" style="max-width: 600px;">
+                    <tr>
+                        <td><strong><?php _e('Plugin Version:', 'woo-update-api'); ?></strong></td>
+                        <td><?php echo WOO_UPDATE_API_VERSION; ?></td>
+                    </tr>
+                    <tr>
+                        <td><strong><?php _e('WordPress Version:', 'woo-update-api'); ?></strong></td>
+                        <td><?php echo get_bloginfo('version'); ?></td>
+                    </tr>
+                    <tr>
+                        <td><strong><?php _e('WooCommerce Version:', 'woo-update-api'); ?></strong></td>
+                        <td><?php echo defined('WC_VERSION') ? WC_VERSION : __('Not installed', 'woo-update-api'); ?></td>
+                    </tr>
+                    <tr>
+                        <td><strong><?php _e('PHP Version:', 'woo-update-api'); ?></strong></td>
+                        <td><?php echo phpversion(); ?></td>
+                    </tr>
+                </table>
             </div>
         </div>
-    <?php
+        <?php
     }
 
     public function render_main_section()
     {
-        echo '<p>' . esc_html__('Configure your external API connection details.', 'woo-update-api') . '</p>';
+        echo '<p>' . __('Configure your API connection details below.', 'woo-update-api') . '</p>';
     }
 
-    public function render_api_url_field()
+    public function render_cache_section()
     {
-        $settings = get_option($this->settings_name, []);
-        $value = esc_attr($settings['api_url'] ?? '');
-        echo '<input type="url" class="regular-text" name="' . esc_attr($this->settings_name) . '[api_url]" value="' . $value . '" placeholder="https://api.example.com/api/woocommerce/v1/products" required>';
-        echo '<p class="description">' . esc_html__('Full URL to your API endpoint', 'woo-update-api') . '</p>';
-    }
-
-    public function render_api_key_field()
-    {
-        $settings = get_option($this->settings_name, []);
-        $value = esc_attr($settings['api_key'] ?? '');
-        echo '<input type="password" class="regular-text" name="' . esc_attr($this->settings_name) . '[api_key]" value="' . $value . '" required>';
-        echo '<p class="description">' . esc_html__('Your API authentication key', 'woo-update-api') . '</p>';
-    }
-
-    public function render_cache_time_field()
-    {
-        $settings = get_option($this->settings_name, []);
-        $value = esc_attr($settings['cache_time'] ?? 300);
-        echo '<input type="number" min="60" step="60" class="small-text" name="' . esc_attr($this->settings_name) . '[cache_time]" value="' . $value . '">';
-        echo '<p class="description">' . esc_html__('How long to cache API responses (in seconds). Minimum 60 seconds.', 'woo-update-api') . '</p>';
-    }
-
-    public function render_reconnect_time_field()
-    {
-        $settings = get_option($this->settings_name, []);
-        $value = esc_attr($settings['reconnect_time'] ?? 3600);
-        echo '<input type="number" min="300" step="300" class="small-text" name="' . esc_attr($this->settings_name) . '[reconnect_time]" value="' . $value . '">';
-        echo '<p class="description">' . esc_html__('How long to stay in fallback mode before retrying (in seconds). Minimum 300 seconds.', 'woo-update-api') . '</p>';
+        echo '<p>' . __('Configure cache and timeout settings.', 'woo-update-api') . '</p>';
     }
 
     public function render_status_section()
     {
-        echo '<p>' . esc_html__('Current status of your API connection.', 'woo-update-api') . '</p>';
+        echo '<p>' . __('Current status of your API connection.', 'woo-update-api') . '</p>';
     }
 
+    public function render_debug_section()
+    {
+        echo '<p>' . __('Debug and maintenance options.', 'woo-update-api') . '</p>';
+    }
+
+    public function render_api_url_field()
+    {
+        $options = get_option('woo_update_api_settings');
+        $value = $options['api_url'] ?? '';
+        ?>
+        <input type="url" 
+               name="woo_update_api_settings[api_url]" 
+               value="<?php echo esc_attr($value); ?>" 
+               class="regular-text"
+               placeholder="https://api.example.com/products">
+        <p class="description"><?php _e('Enter the base URL of your API endpoint.', 'woo-update-api'); ?></p>
+        <?php
+    }
+
+    public function render_api_key_field()
+    {
+        $options = get_option('woo_update_api_settings');
+        $value = $options['api_key'] ?? '';
+        ?>
+        <input type="password" 
+               name="woo_update_api_settings[api_key]" 
+               value="<?php echo esc_attr($value); ?>" 
+               class="regular-text">
+        <p class="description"><?php _e('Your API authentication key.', 'woo-update-api'); ?></p>
+        <?php
+    }
+
+    public function render_cache_time_field()
+    {
+        $options = get_option('woo_update_api_settings');
+        $value = $options['cache_time'] ?? 300;
+        ?>
+        <input type="number" 
+               name="woo_update_api_settings[cache_time]" 
+               value="<?php echo esc_attr($value); ?>" 
+               min="30" 
+               max="3600" 
+               step="1">
+        <p class="description"><?php _e('How long to cache API responses (in seconds). Minimum 30 seconds.', 'woo-update-api'); ?></p>
+        <?php
+    }
+
+    public function render_reconnect_time_field()
+    {
+        $options = get_option('woo_update_api_settings');
+        $value = $options['reconnect_time'] ?? 3600;
+        ?>
+        <input type="number" 
+               name="woo_update_api_settings[reconnect_time]" 
+               value="<?php echo esc_attr($value); ?>" 
+               min="300" 
+               max="86400" 
+               step="1">
+        <p class="description"><?php _e('How long to stay in fallback mode before retrying (in seconds). Minimum 300 seconds.', 'woo-update-api'); ?></p>
+        <?php
+    }
+
+    /**
+     * Render connection status field
+     */
     public function render_connection_status()
     {
-        $status = $this->error_manager->get_status();
-        $fallback_active = $this->api_handler->is_in_fallback_mode();
-    ?>
-        <div id="woo_update_api_current_status">
-            <div class="notice notice-<?php echo $fallback_active ? 'warning' : 'success'; ?> inline" style="margin: 0; padding: 10px;">
-                <p>
-                    <?php if ($fallback_active): ?>
-                        <strong><?php _e('⚠️ Fallback Mode Active', 'woo-update-api'); ?></strong><br>
-                        <?php printf(
-                            __('API is currently unavailable. Using WooCommerce default data. Error count: %d/%d', 'woo-update-api'),
-                            $status['errors'],
-                            $status['threshold']
-                        ); ?>
-                    <?php else: ?>
-                        <strong><?php _e('✅ API Connected', 'woo-update-api'); ?></strong><br>
-                        <?php printf(__('Recent errors: %d/%d', 'woo-update-api'), $status['errors'], $status['threshold']); ?>
-                    <?php endif; ?>
-                </p>
+        $error_manager = \Woo_Update_API\API_Error_Manager::instance();
+        
+        // Obtener estado actual
+        $error_count = $error_manager->get_error_count();
+        $fallback_active = $error_manager->is_fallback_active();
+        $threshold = $error_manager::ERROR_THRESHOLD;
+        
+        // Determinar clase CSS y mensaje
+        if ($fallback_active) {
+            $status_class = 'error';
+            $status_text = __('Fallback Mode Active', 'woo-update-api');
+            $status_description = __('API is unavailable. Using WooCommerce default data.', 'woo-update-api');
+        } elseif ($error_count >= $threshold) {
+            $status_class = 'warning';
+            $status_text = __('Unstable', 'woo-update-api');
+            $status_description = sprintf(
+                __('High error rate (%d/%d). Connection may be unstable.', 'woo-update-api'),
+                $error_count,
+                $threshold
+            );
+        } else {
+            $status_class = 'success';
+            $status_text = __('Connected', 'woo-update-api');
+            $status_description = __('API connection is working normally.', 'woo-update-api');
+        }
+        
+        // Verificar si hay configuración
+        $settings = get_option('woo_update_api_settings', []);
+        $api_configured = !empty($settings['api_url']) && !empty($settings['api_key']);
+        
+        ?>
+        <div class="api-status-container">
+            <div class="api-status-indicator <?php echo esc_attr($status_class); ?>">
+                <span class="status-dot"></span>
+                <strong><?php echo esc_html($status_text); ?></strong>
             </div>
+            
+            <p class="description">
+                <?php echo esc_html($status_description); ?>
+            </p>
+            
+            <?php if ($api_configured): ?>
+                <p>
+                    <button type="button" id="check-api-status" class="button button-secondary">
+                        <?php esc_html_e('Check Connection Now', 'woo-update-api'); ?>
+                    </button>
+                    <span class="spinner" style="float:none; margin-top:0;"></span>
+                </p>
+                <div id="api-status-result" style="margin-top:10px;"></div>
+                
+                <?php if ($error_count > 0): ?>
+                    <p>
+                        <button type="button" id="reset-api-errors" class="button button-link">
+                            <?php esc_html_e('Reset error counter', 'woo-update-api'); ?>
+                        </button>
+                    </p>
+                <?php endif; ?>
+            <?php else: ?>
+                <p class="description">
+                    <?php esc_html_e('Configure API URL and Key above to test connection.', 'woo-update-api'); ?>
+                </p>
+            <?php endif; ?>
         </div>
-    <?php
+        
+        <style>
+            .api-status-indicator {
+                display: inline-block;
+                padding: 4px 12px;
+                border-radius: 20px;
+                font-weight: 500;
+                margin-bottom: 10px;
+            }
+            .api-status-indicator.success {
+                background: #d4edda;
+                color: #155724;
+                border: 1px solid #c3e6cb;
+            }
+            .api-status-indicator.warning {
+                background: #fff3cd;
+                color: #856404;
+                border: 1px solid #ffeeba;
+            }
+            .api-status-indicator.error {
+                background: #f8d7da;
+                color: #721c24;
+                border: 1px solid #f5c6cb;
+            }
+            .status-dot {
+                display: inline-block;
+                width: 10px;
+                height: 10px;
+                border-radius: 50%;
+                margin-right: 8px;
+            }
+            .success .status-dot {
+                background: #28a745;
+            }
+            .warning .status-dot {
+                background: #ffc107;
+            }
+            .error .status-dot {
+                background: #dc3545;
+            }
+        </style>
+        
+        <script>
+        jQuery(document).ready(function($) {
+            $('#check-api-status').on('click', function(e) {
+                e.preventDefault();
+                
+                var button = $(this);
+                var spinner = button.siblings('.spinner');
+                var resultDiv = $('#api-status-result');
+                
+                button.prop('disabled', true);
+                spinner.addClass('is-active');
+                resultDiv.html('');
+                
+                $.ajax({
+                    url: ajaxurl,
+                    type: 'POST',
+                    data: {
+                        action: 'woo_update_api_get_status',
+                        nonce: '<?php echo wp_create_nonce('woo_update_api_nonce'); ?>'
+                    },
+                    success: function(response) {
+                        if (response.success) {
+                            var status = response.data;
+                            var message = status.connected ? 
+                                '✅ <?php echo esc_js(__('API connection successful!', 'woo-update-api')); ?>' : 
+                                '❌ <?php echo esc_js(__('API connection failed.', 'woo-update-api')); ?>';
+                            
+                            resultDiv.html('<div class="notice notice-success inline"><p>' + message + '</p></div>');
+                            
+                            // Recargar para actualizar el indicador
+                            setTimeout(function() {
+                                location.reload();
+                            }, 1500);
+                        } else {
+                            resultDiv.html('<div class="notice notice-error inline"><p>' + response.data.message + '</p></div>');
+                        }
+                    },
+                    error: function() {
+                        resultDiv.html('<div class="notice notice-error inline"><p><?php echo esc_js(__('Request failed.', 'woo-update-api')); ?></p></div>');
+                    },
+                    complete: function() {
+                        button.prop('disabled', false);
+                        spinner.removeClass('is-active');
+                    }
+                });
+            });
+            
+            $('#reset-api-errors').on('click', function(e) {
+                e.preventDefault();
+                
+                $.ajax({
+                    url: ajaxurl,
+                    type: 'POST',
+                    data: {
+                        action: 'woo_update_api_reconnect',
+                        nonce: '<?php echo wp_create_nonce('woo_update_api_nonce'); ?>'
+                    },
+                    success: function(response) {
+                        if (response.success) {
+                            location.reload();
+                        }
+                    }
+                });
+            });
+        });
+        </script>
+        <?php
     }
 
-    public function render_advanced_section()
+    public function render_clear_cache_field()
     {
-        echo '<p>' . esc_html__('Advanced configuration options.', 'woo-update-api') . '</p>';
+        ?>
+        <button type="button" id="clear-api-cache" class="button button-secondary">
+            <?php esc_html_e('Clear All Cache', 'woo-update-api'); ?>
+        </button>
+        <span class="spinner" style="float:none; margin-top:0;"></span>
+        <div id="clear-cache-result" style="margin-top:10px;"></div>
+        
+        <script>
+        jQuery(document).ready(function($) {
+            $('#clear-api-cache').on('click', function(e) {
+                e.preventDefault();
+                
+                var button = $(this);
+                var spinner = button.siblings('.spinner');
+                var resultDiv = $('#clear-cache-result');
+                
+                button.prop('disabled', true);
+                spinner.addClass('is-active');
+                resultDiv.html('');
+                
+                $.ajax({
+                    url: ajaxurl,
+                    type: 'POST',
+                    data: {
+                        action: 'woo_update_api_reconnect',
+                        nonce: '<?php echo wp_create_nonce('woo_update_api_nonce'); ?>'
+                    },
+                    success: function(response) {
+                        if (response.success) {
+                            resultDiv.html('<div class="notice notice-success inline"><p><?php echo esc_js(__('Cache cleared successfully!', 'woo-update-api')); ?></p></div>');
+                        } else {
+                            resultDiv.html('<div class="notice notice-error inline"><p>' + response.data.message + '</p></div>');
+                        }
+                    },
+                    error: function() {
+                        resultDiv.html('<div class="notice notice-error inline"><p><?php echo esc_js(__('Request failed.', 'woo-update-api')); ?></p></div>');
+                    },
+                    complete: function() {
+                        button.prop('disabled', false);
+                        spinner.removeClass('is-active');
+                    }
+                });
+            });
+        });
+        </script>
+        <?php
     }
 
-    public function render_disable_fallback_field()
-    {
-        $settings = get_option($this->settings_name, []);
-        $value = $settings['disable_fallback_mode'] ?? 'no';
-    ?>
-        <label>
-            <input type="checkbox" name="woo_update_api_settings[disable_fallback_mode]" value="yes" <?php checked('yes', $value); ?>>
-            <?php _e('Desactivar Modo de Recuperación (Modo Depuración)', 'woo-update-api'); ?>
-        </label>
-        <p class="description">
-            <?php _e('Si está activado, cuando falle la API se mostrará un error claro en lugar de usar datos locales. Útil para depuración.', 'woo-update-api'); ?>
-        </p>
-<?php
-    }
-
-    public function sanitize_settings($input)
+    public function validate_settings($input)
     {
         $output = [];
-
-        // Nuevo campo: desactivar modo fallback
-        $output['disable_fallback_mode'] = isset($input['disable_fallback_mode']) ? 'yes' : 'no';
-
-        // Sanitize API URL
-        if (isset($input['api_url'])) {
-            $url = esc_url_raw(trim($input['api_url']));
-            if (!empty($url) && !filter_var($url, FILTER_VALIDATE_URL)) {
-                add_settings_error(
-                    $this->settings_name,
-                    'invalid_url',
-                    __('Please enter a valid API URL.', 'woo-update-api')
-                );
-            } else {
-                $output['api_url'] = $url;
-            }
-        }
-
-        // Sanitize API Key
-        if (isset($input['api_key'])) {
-            $output['api_key'] = sanitize_text_field(trim($input['api_key']));
-            if (empty($output['api_key'])) {
-                add_settings_error(
-                    $this->settings_name,
-                    'empty_api_key',
-                    __('API Key is required.', 'woo-update-api')
-                );
-            }
-        }
-
-        // Sanitize cache time
-        if (isset($input['cache_time'])) {
-            $cache_time = absint($input['cache_time']);
-            $output['cache_time'] = $cache_time < 60 ? 60 : $cache_time;
+        
+        // Validar API URL
+        if (!empty($input['api_url'])) {
+            $output['api_url'] = esc_url_raw($input['api_url']);
         } else {
-            $output['cache_time'] = 300;
+            $output['api_url'] = '';
         }
-
-        // Sanitize reconnect time
-        if (isset($input['reconnect_time'])) {
-            $reconnect_time = absint($input['reconnect_time']);
-            $output['reconnect_time'] = $reconnect_time < 300 ? 300 : $reconnect_time;
+        
+        // Validar API Key
+        if (!empty($input['api_key'])) {
+            $output['api_key'] = sanitize_text_field($input['api_key']);
         } else {
-            $output['reconnect_time'] = 3600;
+            $output['api_key'] = '';
         }
-
+        
+        // Validar cache time
+        $output['cache_time'] = isset($input['cache_time']) ? max(30, min(3600, absint($input['cache_time']))) : 300;
+        
+        // Validar reconnect time
+        $output['reconnect_time'] = isset($input['reconnect_time']) ? max(300, min(86400, absint($input['reconnect_time']))) : 3600;
+        
         return $output;
     }
 }
