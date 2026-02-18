@@ -68,9 +68,10 @@ class API_Handler
         } catch (Exception $e) {
             error_log('[API Error] ' . $e->getMessage() . ' - Producto: ' . $product_id);
 
-            // Cachear error por menos tiempo
-            set_transient($cache_key, false, 60);
-            $this->error_manager->increment_error();
+            // NO incrementar error para 404
+            if (strpos($e->getMessage(), '404') === false) {
+                $this->error_manager->increment_error();
+            }
 
             return false;
         }
