@@ -138,7 +138,7 @@ class API_Handler
         }
 
         $test_url = add_query_arg([
-            'sku' => 'TEST',
+            'sku' => 'SYS143612',
             'api_key' => $this->api_key,
             'test' => 1
         ], rtrim($this->api_url, '?&'));
