@@ -3,7 +3,7 @@
  * Plugin Name: WooCommerce Update API
  * Plugin URI: 
  * Description: Plugin que consulta API externa para obtener precios y stock en tiempo real
- * Version: 2.0.0
+ * Version: 2.0.1
  * Requires at least: 5.8
  * Requires PHP: 8.0
  * Author: 
@@ -20,7 +20,7 @@ if (!in_array('woocommerce/woocommerce.php', apply_filters('active_plugins', get
     return;
 }
 
-define('WOO_UPDATE_API_VERSION', '2.0.0');
+define('WOO_UPDATE_API_VERSION', '2.0.1');
 define('WOO_UPDATE_API_PATH', plugin_dir_path(__FILE__));
 define('WOO_UPDATE_API_URL', plugin_dir_url(__FILE__));
 
@@ -38,8 +38,10 @@ class Woo_Update_API {
     public $api_handler;
     public $stock_synchronizer;
     public $price_updater;
-    public $settings;
     public $error_manager;
+    
+    // Eliminamos $settings de aquí como propiedad pública
+    private $settings; // Cambiamos a private para evitar duplicación
 
     public static function get_instance() {
         if (null === self::$instance) {
@@ -54,15 +56,16 @@ class Woo_Update_API {
     }
 
     private function load_dependencies() {
-        $this->settings = new Woo_Update_API_Settings();
-        $this->api_handler = new Woo_Update_API_Handler();
+        // Solo instanciamos UNA VEZ cada clase
+        $this->settings = new Woo_Update_API_Settings(); // Una sola instancia
+        $this->api_handler = new Woo_Update_API_Handler($this->settings); // Pasamos la instancia
         $this->stock_synchronizer = new Woo_Update_API_Stock_Synchronizer($this->api_handler);
         $this->price_updater = new Woo_Update_API_Price_Updater($this->api_handler);
         $this->error_manager = new Woo_Update_API_Error_Manager();
     }
 
     private function init_hooks() {
-        // Inicializar componentes
+        // Inicializar componentes - solo una vez
         add_action('init', [$this, 'init']);
         
         // Hooks para actualización en carrito
@@ -106,6 +109,11 @@ class Woo_Update_API {
             error_log($prefix . ' ' . $message);
         }
     }
+    
+    // Método getter para acceder a settings si es necesario
+    public function get_settings() {
+        return $this->settings;
+    }
 }
 
 // Initialize the plugin
@@ -113,4 +121,5 @@ function Woo_Update_API() {
     return Woo_Update_API::get_instance();
 }
 
+// Iniciar el plugin
 Woo_Update_API();

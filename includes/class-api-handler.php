@@ -3,10 +3,10 @@ class Woo_Update_API_Handler {
 
     private $settings;
 
-    public function __construct() {
-        $this->settings = new Woo_Update_API_Settings();
+    public function __construct($settings) { // Recibir settings como parámetro
+        $this->settings = $settings;
     }
-
+    
     /**
      * Consulta API sin NINGÚN tipo de caché
      */
