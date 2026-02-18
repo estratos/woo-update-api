@@ -3,6 +3,8 @@ class Woo_Update_API_Error_Manager {
 
     private $error_count = 0;
     private $last_error_time = 0;
+    private $last_success_time = 0;
+    private $last_api_timestamp = '';
     private $error_threshold = 5;
     private $time_window = 300; // 5 minutos
 
@@ -12,11 +14,18 @@ class Woo_Update_API_Error_Manager {
     }
 
     /**
-     * Manejar errores en display de precios
+     * Registrar éxito de API con timestamp
      */
-    public function handle_price_display_errors($price_html, $product) {
-        // Si hay un error, solo mostrar el precio normal sin errores
-        return $price_html;
+    public function log_success($sku, $timestamp) {
+        $this->last_success_time = time();
+        $this->last_api_timestamp = $timestamp;
+        
+        Woo_Update_API()->log('API exitosa para SKU: ' . $sku . ' - Timestamp: ' . $timestamp, 'api');
+        
+        // Resetear contador de errores si ha pasado suficiente tiempo
+        if (time() - $this->last_error_time > $this->time_window) {
+            $this->error_count = 0;
+        }
     }
 
     /**
@@ -50,23 +59,21 @@ class Woo_Update_API_Error_Manager {
     }
 
     /**
-     * Enviar alerta (puede ser extendido para email, Slack, etc)
+     * Enviar alerta
      */
     private function send_alert($error_message) {
-        // Log para debug
         Woo_Update_API()->log('ALERTA: Múltiples errores detectados - ' . $error_message, 'error');
-        
-        // Aquí se podría implementar notificación por email
-        // wp_mail($admin_email, 'Woo Update API Alert', $error_message);
     }
 
     /**
-     * Obtener estado de errores
+     * Obtener estado
      */
-    public function get_error_status() {
+    public function get_status() {
         return [
             'error_count' => $this->error_count,
             'last_error_time' => $this->last_error_time,
+            'last_success_time' => $this->last_success_time,
+            'last_api_timestamp' => $this->last_api_timestamp,
             'threshold_reached' => $this->should_send_alert()
         ];
     }

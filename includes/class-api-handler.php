@@ -3,10 +3,10 @@ class Woo_Update_API_Handler {
 
     private $settings;
 
-    public function __construct($settings) { // Recibir settings como parámetro
+    public function __construct($settings) {
         $this->settings = $settings;
     }
-    
+
     /**
      * Consulta API sin NINGÚN tipo de caché
      */
@@ -53,13 +53,25 @@ class Woo_Update_API_Handler {
             return false;
         }
 
-        // Validar estructura de respuesta
-        if (!isset($data['product']) || !is_array($data['product'])) {
-            Woo_Update_API()->log('Respuesta API inválida: estructura incorrecta', 'api');
+        // Validar estructura de respuesta según tu API real
+        if (!isset($data['success']) || $data['success'] !== true) {
+            Woo_Update_API()->log('Respuesta API indica error o success=false', 'api');
             return false;
         }
 
+        if (!isset($data['product']) || !is_array($data['product'])) {
+            Woo_Update_API()->log('Respuesta API inválida: no contiene product', 'api');
+            return false;
+        }
+
+        // Log del timestamp si está disponible
+        if (isset($data['meta']['timestamp'])) {
+            Woo_Update_API()->log('Timestamp API: ' . $data['meta']['timestamp'], 'api');
+        }
+
         Woo_Update_API()->log('Respuesta API exitosa para SKU: ' . $sku, 'api');
+        
+        // Devolver SOLO el array product (sin success ni meta)
         return $data['product'];
     }
 
@@ -85,6 +97,18 @@ class Woo_Update_API_Handler {
         }
 
         return $data;
+    }
+
+    /**
+     * Obtener el timestamp de la última respuesta API para un producto
+     */
+    public function get_last_api_timestamp($product_id, $sku) {
+        $data = $this->get_product_data_with_memory_cache($product_id, $sku);
+        
+        // El timestamp no viene en el product, habría que guardarlo aparte
+        // Por ahora solo lo usamos para logging en get_product_data_direct
+        
+        return false;
     }
 
     /**
