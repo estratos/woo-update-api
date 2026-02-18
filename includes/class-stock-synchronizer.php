@@ -153,6 +153,23 @@ class Stock_Synchronizer
 
             // Obtener datos frescos de API
             $api_data = $this->get_fresh_api_data($product_id, $product->get_sku());
+
+            // DEBUG TEMPORAL
+error_log('========== DEBUG SYNC ==========');
+error_log('Producto ID: ' . $product_id);
+error_log('SKU: ' . $product->get_sku());
+error_log('API Data recibido: ' . print_r($api_data, true));
+error_log('Precio actual en BD: ' . $product->get_price());
+error_log('Stock actual en BD: ' . $product->get_stock_quantity());
+if (isset($api_data['price_mxn'])) {
+    error_log('Precio API (MXN): ' . $api_data['price_mxn']);
+} elseif (isset($api_data['price'])) {
+    error_log('Precio API: ' . $api_data['price']);
+}
+if (isset($api_data['stock_quantity'])) {
+    error_log('Stock API: ' . $api_data['stock_quantity']);
+}
+error_log('===============================');
             
             if ($api_data === false) {
                 error_log('[Sync Error] No se pudo obtener datos de API para: ' . $product_id);
