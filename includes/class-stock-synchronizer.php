@@ -1,4 +1,5 @@
 <?php
+
 namespace Woo_Update_API;
 
 use Exception;
@@ -28,34 +29,34 @@ class Stock_Synchronizer
     private function init_hooks()
     {
         // ========== FRONTEND ==========
-        
+
         // VALIDACIÓN AL AÑADIR AL CARRITO
         add_filter('woocommerce_add_to_cart_validation', [$this, 'validate_add_to_cart'], 20, 4);
 
         // ACTUALIZAR BD AL AGREGAR AL CARRITO (con precio y stock)
         add_action('woocommerce_add_to_cart', [$this, 'update_on_add_to_cart'], 1, 6);
         add_action('woocommerce_ajax_added_to_cart', [$this, 'update_on_ajax_add_to_cart'], 1, 1);
-        
+
         // ACTUALIZAR BD EN PÁGINA DE CARRITO (máx cada 5 min)
         add_action('template_redirect', [$this, 'maybe_update_cart_items']);
-        
+
         // VALIDACIÓN CRÍTICA EN CHECKOUT
         add_action('woocommerce_checkout_process', [$this, 'validate_checkout_stock']);
         add_action('woocommerce_before_checkout_process', [$this, 'validate_checkout_stock']);
-        
+
         // VALIDACIÓN AL CARGAR PÁGINA DE CHECKOUT
         add_action('template_redirect', [$this, 'maybe_validate_checkout_page']);
-        
+
         // ACTUALIZAR DESPUÉS DE COMPRA
         add_action('woocommerce_payment_complete', [$this, 'update_stock_after_purchase'], 10, 1);
         add_action('woocommerce_order_status_completed', [$this, 'update_stock_after_purchase'], 10, 1);
 
         // ========== BACKEND (ADMIN) ==========
-        
+
         add_action('woo_update_api_daily_stock_sync', [$this, 'sync_all_products']);
         add_action('woo_update_api_hourly_sync', [$this, 'sync_recent_products']);
         add_action('woo_update_api_single_sync', [$this, 'sync_single_product']);
-        
+
         add_action('wp_ajax_woo_update_api_sync_to_db', [$this, 'ajax_sync_to_db']);
         add_action('wp_ajax_woo_update_api_validate_stock', [$this, 'ajax_validate_stock']);
         add_action('wp_ajax_nopriv_woo_update_api_validate_stock', [$this, 'ajax_validate_stock']);
@@ -68,20 +69,19 @@ class Stock_Synchronizer
     {
         try {
             $actual_product_id = $variation_id ? $variation_id : $product_id;
-            
+
             error_log('[Add to Cart] Actualizando producto: ' . $actual_product_id);
-            
+
             // Prevenir múltiples ejecuciones
             $lock_key = 'update_lock_' . $actual_product_id;
             if (isset($this->update_lock[$lock_key]) && $this->update_lock[$lock_key] > time() - 5) {
                 return;
             }
-            
+
             $this->update_lock[$lock_key] = time();
-            
+
             // SINCRONIZACIÓN COMPLETA (precio + stock)
             $this->sync_single_product_now($actual_product_id);
-            
         } catch (Exception $e) {
             error_log('[Add to Cart Error] ' . $e->getMessage());
         } finally {
@@ -111,7 +111,7 @@ class Stock_Synchronizer
 
         $session = WC()->session;
         $last_update = $session->get('woo_api_cart_updated');
-        
+
         // Actualizar máximo cada 5 minutos
         if ($last_update && $last_update > (time() - 300)) {
             return;
@@ -128,7 +128,7 @@ class Stock_Synchronizer
 
         foreach ($cart_items as $cart_item) {
             $product_id = !empty($cart_item['variation_id']) ? $cart_item['variation_id'] : $cart_item['product_id'];
-            
+
             if (is_checkout()) {
                 $this->sync_single_product_now($product_id);
             } else {
@@ -142,6 +142,10 @@ class Stock_Synchronizer
     /**
      * SINCRONIZACIÓN COMPLETA DE PRODUCTO (PRECIO + STOCK)
      */
+
+    /**
+     * SINCRONIZACIÓN COMPLETA DE PRODUCTO (PRECIO + STOCK) - VERSIÓN CORREGIDA
+     */
     public function sync_single_product_now($product_id)
     {
         try {
@@ -154,23 +158,6 @@ class Stock_Synchronizer
             // Obtener datos frescos de API
             $api_data = $this->get_fresh_api_data($product_id, $product->get_sku());
 
-            // DEBUG TEMPORAL
-error_log('========== DEBUG SYNC ==========');
-error_log('Producto ID: ' . $product_id);
-error_log('SKU: ' . $product->get_sku());
-error_log('API Data recibido: ' . print_r($api_data, true));
-error_log('Precio actual en BD: ' . $product->get_price());
-error_log('Stock actual en BD: ' . $product->get_stock_quantity());
-if (isset($api_data['price_mxn'])) {
-    error_log('Precio API (MXN): ' . $api_data['price_mxn']);
-} elseif (isset($api_data['price'])) {
-    error_log('Precio API: ' . $api_data['price']);
-}
-if (isset($api_data['stock_quantity'])) {
-    error_log('Stock API: ' . $api_data['stock_quantity']);
-}
-error_log('===============================');
-            
             if ($api_data === false) {
                 error_log('[Sync Error] No se pudo obtener datos de API para: ' . $product_id);
                 return false;
@@ -179,72 +166,92 @@ error_log('===============================');
             $updated = false;
             $updates = [];
 
-            // ===== 1. ACTUALIZAR PRECIO =====
+            // ===== 1. ACTUALIZAR PRECIO - CON COMPARACIÓN NUMÉRICA EXACTA =====
             if (isset($api_data['price_mxn']) || isset($api_data['price'])) {
-                $price = isset($api_data['price_mxn']) ? floatval($api_data['price_mxn']) : floatval($api_data['price']);
-                $current_price = $product->get_price();
-                
-                // Solo actualizar si hay cambio
-                if ($price != $current_price) {
+                $api_price = isset($api_data['price_mxn']) ? floatval($api_data['price_mxn']) : floatval($api_data['price']);
+                $current_price = floatval($product->get_price());
+
+                // IMPORTANTE: Redondear a 2 decimales para comparación
+                $api_price_rounded = round($api_price, 2);
+                $current_price_rounded = round($current_price, 2);
+
+                // Solo actualizar si hay diferencia REAL (más de 0.01)
+                if (abs($api_price_rounded - $current_price_rounded) > 0.001) {
+
+                    error_log('[Sync] DIFERENCIA DETECTADA - API: ' . $api_price . ' vs BD: ' . $current_price);
+
                     // Actualizar metadatos de precio
-                    update_post_meta($product_id, '_price', $price);
-                    update_post_meta($product_id, '_regular_price', $price);
-                    
+                    update_post_meta($product_id, '_price', $api_price);
+                    update_post_meta($product_id, '_regular_price', $api_price);
+
+                    // Si hay sale_price en API, también actualizarlo
+                    if (isset($api_data['sale_price'])) {
+                        update_post_meta($product_id, '_sale_price', floatval($api_data['sale_price']));
+                    }
+
                     // Para variaciones
                     if ($product->is_type('variation')) {
-                        update_post_meta($product_id, '_variation_price', $price);
-                        
+                        update_post_meta($product_id, '_variation_price', $api_price);
+
                         // Limpiar caché del producto padre
                         $parent_id = $product->get_parent_id();
                         if ($parent_id) {
                             wc_delete_product_transients($parent_id);
+                            delete_transient('wc_product_children_' . $parent_id);
                         }
                     }
-                    
-                    $updates[] = 'precio: ' . $current_price . ' → ' . $price;
+
+                    $updates[] = 'precio: ' . $current_price . ' → ' . $api_price;
                     $updated = true;
-                    
-                    error_log('[Sync] Precio actualizado: ' . $product_id . ' = ' . $price);
+
+                    error_log('[Sync] ✅ Precio ACTUALIZADO: ' . $product_id . ' = ' . $api_price);
+                } else {
+                    error_log('[Sync] ℹ️ Precio SIN CAMBIOS: ' . $product_id . ' = ' . $api_price);
                 }
             }
 
             // ===== 2. ACTUALIZAR STOCK =====
             if (isset($api_data['stock_quantity']) && $product->managing_stock()) {
                 $api_stock = intval($api_data['stock_quantity']);
-                $current_stock = $product->get_stock_quantity();
-                
+                $current_stock = intval($product->get_stock_quantity());
+
                 if ($api_stock !== $current_stock) {
-                    // Actualizar stock
                     wc_update_product_stock($product_id, $api_stock);
                     update_post_meta($product_id, '_stock', $api_stock);
-                    
+
                     $updates[] = 'stock: ' . $current_stock . ' → ' . $api_stock;
                     $updated = true;
-                    
-                    error_log('[Sync] Stock actualizado: ' . $product_id . ' = ' . $api_stock);
+
+                    error_log('[Sync] ✅ Stock ACTUALIZADO: ' . $product_id . ' = ' . $api_stock);
+                } else {
+                    error_log('[Sync] ℹ️ Stock SIN CAMBIOS: ' . $product_id . ' = ' . $api_stock);
                 }
             }
 
-            // ===== 3. GUARDAR TIMESTAMP Y CACHE =====
+            // ===== 3. GUARDAR TIMESTAMP =====
             if ($updated) {
                 update_post_meta($product_id, '_last_api_sync', current_time('mysql'));
                 update_post_meta($product_id, '_api_data_cache', $api_data);
-                
-                // Limpiar cachés de WooCommerce
+
+                // Limpiar todos los caches de WooCommerce
                 wc_delete_product_transients($product_id);
-                
-                error_log('[Sync] Producto actualizado: ' . $product_id . ' - ' . implode(', ', $updates));
+                clean_post_cache($product_id);
+
+                error_log('[Sync] ✅ Producto ACTUALIZADO: ' . $product_id . ' - ' . implode(', ', $updates));
             } else {
-                error_log('[Sync] Producto sin cambios: ' . $product_id);
+                // Aún así actualizar timestamp para saber que se verificó
+                update_post_meta($product_id, '_last_api_sync_check', current_time('mysql'));
+                error_log('[Sync] ℹ️ Producto SIN CAMBIOS: ' . $product_id);
             }
 
             return $updated;
-
         } catch (Exception $e) {
             error_log('[Sync Error] ' . $e->getMessage() . ' - Producto: ' . $product_id);
             return false;
         }
     }
+
+
 
     /**
      * SINCRONIZACIÓN EN BACKGROUND
@@ -262,13 +269,13 @@ error_log('===============================');
         // Limpiar caché para forzar consulta fresca
         $cache_key = 'woo_api_product_' . md5($product_id . $sku);
         delete_transient($cache_key);
-        
+
         // Limpiar caché de sesión
         if (function_exists('WC') && WC()->session) {
             WC()->session->set('woo_api_price_' . $product_id, null);
             WC()->session->set('woo_api_stock_' . $product_id, null);
         }
-        
+
         return $this->api_handler->get_product_data($product_id, $sku);
     }
 
@@ -279,7 +286,7 @@ error_log('===============================');
     {
         try {
             $actual_product_id = $variation_id ? $variation_id : $product_id;
-            
+
             $product = wc_get_product($actual_product_id);
             if (!$product || !$product->managing_stock()) {
                 return $passed;
@@ -287,7 +294,7 @@ error_log('===============================');
 
             // Obtener stock actualizado
             $api_data = $this->get_fresh_api_data($actual_product_id, $product->get_sku());
-            
+
             if ($api_data && isset($api_data['stock_quantity'])) {
                 $real_stock = intval($api_data['stock_quantity']);
             } else {
@@ -299,8 +306,10 @@ error_log('===============================');
             $cart = WC()->cart;
             if ($cart) {
                 foreach ($cart->get_cart() as $cart_item) {
-                    if ($cart_item['product_id'] == $product_id && 
-                        $cart_item['variation_id'] == $variation_id) {
+                    if (
+                        $cart_item['product_id'] == $product_id &&
+                        $cart_item['variation_id'] == $variation_id
+                    ) {
                         $cart_quantity = $cart_item['quantity'];
                         break;
                     }
@@ -311,17 +320,16 @@ error_log('===============================');
 
             if ($total_requested > $real_stock) {
                 $available = max(0, $real_stock - $cart_quantity);
-                
+
                 wc_add_notice(
                     sprintf(__('No hay suficiente stock. Solo %d disponible(s).', 'woo-update-api'), $available),
                     'error'
                 );
-                
+
                 return false;
             }
 
             return $passed;
-
         } catch (Exception $e) {
             error_log('[Validate Error] ' . $e->getMessage());
             return $passed;
@@ -339,7 +347,7 @@ error_log('===============================');
 
         $cart = WC()->cart;
         $cart_items = $cart->get_cart();
-        
+
         if (empty($cart_items)) {
             return;
         }
@@ -351,23 +359,23 @@ error_log('===============================');
             $product_id = !empty($cart_item['variation_id']) ? $cart_item['variation_id'] : $cart_item['product_id'];
             $quantity = $cart_item['quantity'];
             $product = $cart_item['data'];
-            
+
             // Obtener datos frescos
             $api_data = $this->get_fresh_api_data($product_id, $product->get_sku());
-            
+
             if ($api_data && isset($api_data['stock_quantity'])) {
                 $real_stock = intval($api_data['stock_quantity']);
                 $current_stock = $product->get_stock_quantity();
-                
+
                 // Si el stock cambió, marcar para refrescar
                 if ($real_stock !== $current_stock) {
                     $needs_refresh = true;
                 }
-                
+
                 // Validar stock
                 if ($real_stock < $quantity) {
                     $has_errors = true;
-                    
+
                     if ($real_stock > 0) {
                         WC()->cart->set_quantity($cart_item_key, $real_stock);
                         wc_add_notice(
@@ -406,14 +414,14 @@ error_log('===============================');
         if (!is_checkout() || is_wc_endpoint_url('order-pay')) {
             return;
         }
-        
+
         if (!function_exists('WC') || !WC()->session) {
             return;
         }
-        
+
         $session = WC()->session;
         $last_validation = $session->get('woo_api_checkout_validation');
-        
+
         if (!$last_validation || $last_validation < (time() - 300)) {
             $this->validate_checkout_stock();
             $session->set('woo_api_checkout_validation', time());
@@ -446,7 +454,7 @@ error_log('===============================');
 
             // Cache de sesión
             $cache_key = 'woo_api_stock_' . $product_id;
-            
+
             if (function_exists('WC') && WC()->session) {
                 $cached = WC()->session->get($cache_key);
                 if ($cached !== null) {
@@ -458,16 +466,15 @@ error_log('===============================');
 
             if ($api_data && isset($api_data['stock_quantity'])) {
                 $stock = intval($api_data['stock_quantity']);
-                
+
                 if (function_exists('WC') && WC()->session) {
                     WC()->session->set($cache_key, $stock);
                 }
-                
+
                 return $stock;
             }
 
             return $product->get_stock_quantity();
-
         } catch (Exception $e) {
             error_log('[Get Stock Error] ' . $e->getMessage());
             $product = wc_get_product($product_id);
@@ -483,7 +490,7 @@ error_log('===============================');
             'limit' => -1,
             'return' => 'ids'
         ]);
-        
+
         foreach ($products as $product_id) {
             wp_schedule_single_event(time(), 'woo_update_api_single_sync', [$product_id]);
             usleep(100000);
@@ -501,7 +508,7 @@ error_log('===============================');
                 date('Y-m-d H:i:s', time() - 86400)
             )
         );
-        
+
         foreach ($product_ids as $product_id) {
             wp_schedule_single_event(time(), 'woo_update_api_single_sync', [$product_id]);
             usleep(50000);
@@ -511,31 +518,30 @@ error_log('===============================');
     public function ajax_sync_to_db()
     {
         check_ajax_referer('wc_update_api_sync_db', 'nonce');
-        
+
         if (!current_user_can('edit_products')) {
             wp_send_json_error(['message' => __('Permission denied', 'woo-update-api')]);
         }
-        
+
         $product_id = isset($_POST['product_id']) ? absint($_POST['product_id']) : 0;
-        
+
         if (!$product_id) {
             wp_send_json_error(['message' => __('Invalid product ID', 'woo-update-api')]);
         }
 
         try {
             $updated = $this->sync_single_product_now($product_id);
-            
+
             $product = wc_get_product($product_id);
-            
+
             wp_send_json_success([
-                'message' => $updated ? 
-                    __('Product synchronized successfully', 'woo-update-api') : 
+                'message' => $updated ?
+                    __('Product synchronized successfully', 'woo-update-api') :
                     __('No changes needed', 'woo-update-api'),
                 'price' => $product ? $product->get_price() : null,
                 'stock' => $product ? $product->get_stock_quantity() : null,
                 'last_sync' => get_post_meta($product_id, '_last_api_sync', true)
             ]);
-
         } catch (Exception $e) {
             wp_send_json_error(['message' => $e->getMessage()]);
         }
@@ -544,11 +550,11 @@ error_log('===============================');
     public function ajax_validate_stock()
     {
         check_ajax_referer('woo_update_api_nonce', 'nonce');
-        
+
         $product_id = isset($_POST['product_id']) ? absint($_POST['product_id']) : 0;
         $quantity = isset($_POST['quantity']) ? absint($_POST['quantity']) : 1;
         $variation_id = isset($_POST['variation_id']) ? absint($_POST['variation_id']) : 0;
-        
+
         if (!$product_id) {
             wp_send_json_error(['message' => __('Invalid product ID', 'woo-update-api')]);
         }
@@ -556,13 +562,13 @@ error_log('===============================');
         try {
             $actual_product_id = $variation_id ? $variation_id : $product_id;
             $product = wc_get_product($actual_product_id);
-            
+
             if (!$product) {
                 throw new Exception(__('Product not found', 'woo-update-api'));
             }
 
             $real_stock = $this->get_real_stock($actual_product_id);
-            
+
             if ($real_stock >= $quantity) {
                 wp_send_json_success([
                     'stock' => $real_stock,
@@ -574,7 +580,6 @@ error_log('===============================');
                     'message' => sprintf(__('Only %d available', 'woo-update-api'), $real_stock)
                 ]);
             }
-
         } catch (Exception $e) {
             wp_send_json_error(['message' => $e->getMessage()]);
         }
