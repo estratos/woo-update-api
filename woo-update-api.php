@@ -3,7 +3,7 @@
  * Plugin Name: WooCommerce Update API
  * Plugin URI: 
  * Description: Plugin que consulta API externa para obtener precios y stock en tiempo real
- * Version: 2.0.2
+ * Version: 2.0.3
  * Requires at least: 5.8
  * Requires PHP: 8.0
  * Author: 
@@ -20,7 +20,7 @@ if (!in_array('woocommerce/woocommerce.php', apply_filters('active_plugins', get
     return;
 }
 
-define('WOO_UPDATE_API_VERSION', '2.0.2');
+define('WOO_UPDATE_API_VERSION', '2.0.3'
 define('WOO_UPDATE_API_PATH', plugin_dir_path(__FILE__));
 define('WOO_UPDATE_API_URL', plugin_dir_url(__FILE__));
 

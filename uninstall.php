@@ -1,6 +1,9 @@
 <?php
 /**
- * WooCommerce Update API - Uninstall Script
+ * Uninstall script for WooCommerce Update API
+ * 
+ * This file runs when the plugin is uninstalled (deleted) via WordPress admin.
+ * It cleans up all plugin data from the database.
  * 
  * @package Woo_Update_API
  */
@@ -10,45 +13,41 @@ if (!defined('WP_UNINSTALL_PLUGIN')) {
     exit;
 }
 
-// Delete plugin options
-delete_option('woo_update_api_settings');
-delete_option('woo_update_api_version');
-delete_option('woo_update_api_sync_logs'); // NUEVO
-delete_option('woo_update_api_stock_mismatches'); // NUEVO
-
-// Delete transients
-$transients = [
-    'woo_update_api_fallback_mode',
-    'woo_update_api_fallback_start',
-    'woo_update_api_error_count',
-    'woo_update_api_fallback_active'
-];
-
-foreach ($transients as $transient) {
-    delete_transient($transient);
+/**
+ * Elimina todas las opciones de configuración del plugin
+ */
+function woo_update_api_uninstall() {
+    
+    // 1. Eliminar la opción principal con toda la configuración
+    $option_name = 'woo_update_api_settings';
+    delete_option($option_name);
+    
+    // 2. Por si acaso, también eliminar de las opciones de red (multisite)
+    delete_site_option($option_name);
+    
+    // 3. Eliminar cualquier transient que haya podido quedar
+    delete_transient('woo_update_api_test_connection');
+    
+    // 4. Limpiar meta datos de productos si existieran (opcional)
+    // Por ahora no guardamos meta datos persistentes, pero si en futuro se agregan,
+    // aquí se pueden limpiar
+    
+    /**
+     * Nota: No eliminamos metadatos de productos como '_last_api_sync' 
+     * porque son datos útiles que otros plugins podrían necesitar.
+     * Además, si el plugin se reactiva, esos datos pueden ser reutilizados.
+     * 
+     * Si quisieras eliminarlos, podrías usar:
+     * 
+     * global $wpdb;
+     * $wpdb->delete($wpdb->postmeta, ['meta_key' => '_last_api_sync']);
+     */
+    
+    // 5. Log de desinstalación (solo si WP_DEBUG está activado)
+    if (defined('WP_DEBUG') && WP_DEBUG === true) {
+        error_log('[Woo Update API] Plugin uninstalled - Settings removed');
+    }
 }
 
-// Clear all product transients
-global $wpdb;
-$wpdb->query(
-    $wpdb->prepare(
-        "DELETE FROM {$wpdb->options} WHERE option_name LIKE %s OR option_name LIKE %s",
-        '_transient_woo_update_api_product_%',
-        '_transient_timeout_woo_update_api_product_%'
-    )
-);
-
-// Delete product meta
-$wpdb->query(
-    $wpdb->prepare(
-        "DELETE FROM {$wpdb->postmeta} WHERE meta_key IN (%s, %s, %s)",
-        '_api_price',
-        '_api_stock',
-        '_wc_update_api_last_refresh'
-    )
-);
-
-// Clear any scheduled hooks
-wp_clear_scheduled_hook('woo_update_api_daily_cleanup');
-wp_clear_scheduled_hook('woo_update_api_daily_stock_sync'); // NUEVO
-wp_clear_scheduled_hook('woo_update_api_async_stock_sync'); // NUEVO
+// Ejecutar la desinstalación
+woo_update_api_uninstall();
