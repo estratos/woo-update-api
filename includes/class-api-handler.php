@@ -1,4 +1,5 @@
 <?php
+
 namespace Woo_Update_API;
 
 use Exception;
@@ -64,14 +65,13 @@ class API_Handler
             }
 
             return false;
-
         } catch (Exception $e) {
             error_log('[API Error] ' . $e->getMessage() . ' - Producto: ' . $product_id);
-            
+
             // Cachear error por menos tiempo
             set_transient($cache_key, false, 60);
             $this->error_manager->increment_error();
-            
+
             return false;
         }
     }
@@ -126,6 +126,85 @@ class API_Handler
         }
 
         return $data;
+    }
+
+    /**
+     * MÉTODO DIRECTO - SIN CACHÉ - SIN FILTROS - SOLO API
+     */
+    public function get_product_data_direct($product_id, $sku = '')
+    {
+        error_log('[API Direct] ===== CONSULTA DIRECTA A API =====');
+        error_log('[API Direct] Producto: ' . $product_id . ' - SKU: ' . $sku);
+
+        if (empty($this->api_url) || empty($this->api_key)) {
+            error_log('[API Direct] ERROR - API no configurada');
+            return false;
+        }
+
+        try {
+            // Construir URL
+            $base_url = rtrim($this->api_url, '?&');
+            $query_args = [
+                'sku' => $sku,
+                'api_key' => $this->api_key
+            ];
+
+            if (!empty($product_id) && $product_id > 0) {
+                $query_args['product_id'] = $product_id;
+            }
+
+            $endpoint = add_query_arg($query_args, $base_url);
+            error_log('[API Direct] URL: ' . str_replace($this->api_key, '***', $endpoint));
+
+            // Hacer request
+            $args = [
+                'headers' => [
+                    'Accept' => 'application/json',
+                    'User-Agent' => 'WooCommerce-Update-API/1.0'
+                ],
+                'timeout' => 15,
+                'sslverify' => true
+            ];
+
+            $response = wp_safe_remote_get($endpoint, $args);
+
+            if (is_wp_error($response)) {
+                error_log('[API Direct] WP Error: ' . $response->get_error_message());
+                return false;
+            }
+
+            $status_code = wp_remote_retrieve_response_code($response);
+            $response_body = wp_remote_retrieve_body($response);
+
+            error_log('[API Direct] Status code: ' . $status_code);
+
+            if ($status_code !== 200) {
+                error_log('[API Direct] Error HTTP: ' . $status_code);
+                if ($status_code === 404) {
+                    error_log('[API Direct] Producto no encontrado en API (SKU: ' . $sku . ')');
+                }
+                return false;
+            }
+
+            $data = json_decode($response_body, true);
+
+            if (json_last_error() !== JSON_ERROR_NONE) {
+                error_log('[API Direct] JSON Error: ' . json_last_error_msg());
+                return false;
+            }
+
+            // Devolver datos del producto
+            if (isset($data['product'])) {
+                error_log('[API Direct] ✅ Datos obtenidos (formato product)');
+                return $data['product'];
+            }
+
+            error_log('[API Direct] ✅ Datos obtenidos');
+            return $data;
+        } catch (Exception $e) {
+            error_log('[API Direct] Excepción: ' . $e->getMessage());
+            return false;
+        }
     }
 
     /**
@@ -185,7 +264,6 @@ class API_Handler
             }
 
             wp_send_json_success($status);
-
         } catch (Exception $e) {
             wp_send_json_error(['message' => $e->getMessage()]);
         }
@@ -217,7 +295,6 @@ class API_Handler
                 'message' => __('Reconnected successfully!', 'woo-update-api'),
                 'connected' => $connected
             ]);
-
         } catch (Exception $e) {
             wp_send_json_error(['message' => $e->getMessage()]);
         }
