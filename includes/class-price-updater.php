@@ -7,6 +7,11 @@ class Price_Updater
 {
     private static $instance = null;
     private $api_handler;
+    
+    /**
+     * Caché en memoria para esta petición
+     */
+    private $api_cache = [];
 
     public static function instance()
     {
@@ -41,7 +46,7 @@ class Price_Updater
         if (is_product()) {
             error_log('[Price Updater] Activando filters para página de producto');
             
-            // SIN CACHÉ - SIEMPRE consulta API
+            // SIN CACHÉ PERSISTENTE - SOLO EN MEMORIA PARA ESTA PETICIÓN
             add_filter('woocommerce_product_get_price', [$this, 'get_price_from_api'], 999, 2);
             add_filter('woocommerce_product_get_regular_price', [$this, 'get_price_from_api'], 999, 2);
             add_filter('woocommerce_product_get_sale_price', [$this, 'get_price_from_api'], 999, 2);
@@ -55,34 +60,48 @@ class Price_Updater
     }
 
     /**
-     * OBTENER PRECIO DE API - SIN CACHÉ
+     * OBTENER DATOS DE API CON CACHÉ EN MEMORIA (UNA SOLA CONSULTA)
+     */
+    private function get_cached_api_data($product_id, $sku)
+    {
+        // Si ya tenemos datos en memoria para este producto, usarlos
+        if (isset($this->api_cache[$product_id])) {
+            error_log('[Price Updater] Usando caché en memoria para: ' . $product_id);
+            return $this->api_cache[$product_id];
+        }
+        
+        // Si no, consultar API
+        error_log('[Price Updater] Consultando API para: ' . $product_id);
+        $data = $this->api_handler->get_product_data_direct($product_id, $sku);
+        
+        // Guardar en caché en memoria
+        $this->api_cache[$product_id] = $data;
+        
+        return $data;
+    }
+
+    /**
+     * OBTENER PRECIO DE API - CON CACHÉ EN MEMORIA
      */
     public function get_price_from_api($price, $product)
     {
         try {
             $product_id = $product->get_id();
             
-            error_log('[Price Updater] Consultando precio API para: ' . $product_id);
-            
-            // Usar método DIRECTO (sin caché)
-            $api_data = $this->api_handler->get_product_data_direct($product_id, $product->get_sku());
+            // Usar caché en memoria
+            $api_data = $this->get_cached_api_data($product_id, $product->get_sku());
             
             if ($api_data === false) {
-                error_log('[Price Updater] No se pudo obtener datos API, usando BD: ' . $price);
                 return $price;
             }
             
             // Obtener precio
             if (isset($api_data['price_mxn'])) {
-                $api_price = floatval($api_data['price_mxn']);
-                error_log('[Price Updater] Precio API (MXN): ' . $api_price);
-                return $api_price;
+                return floatval($api_data['price_mxn']);
             }
             
             if (isset($api_data['price'])) {
-                $api_price = floatval($api_data['price']);
-                error_log('[Price Updater] Precio API: ' . $api_price);
-                return $api_price;
+                return floatval($api_data['price']);
             }
             
             return $price;
@@ -94,21 +113,18 @@ class Price_Updater
     }
 
     /**
-     * OBTENER STOCK DE API - SIN CACHÉ
+     * OBTENER STOCK DE API - CON CACHÉ EN MEMORIA
      */
     public function get_stock_from_api($quantity, $product)
     {
         try {
             $product_id = $product->get_id();
             
-            error_log('[Price Updater] Consultando stock API para: ' . $product_id);
-            
-            $api_data = $this->api_handler->get_product_data_direct($product_id, $product->get_sku());
+            // Usar caché en memoria
+            $api_data = $this->get_cached_api_data($product_id, $product->get_sku());
             
             if ($api_data && isset($api_data['stock_quantity'])) {
-                $api_stock = intval($api_data['stock_quantity']);
-                error_log('[Price Updater] Stock API: ' . $api_stock);
-                return $api_stock;
+                return intval($api_data['stock_quantity']);
             }
             
             return $quantity;
@@ -120,7 +136,7 @@ class Price_Updater
     }
 
     /**
-     * ADMIN UI - Botones de sincronización (sin cambios)
+     * ADMIN UI - Botones de sincronización
      */
     public function add_refresh_ui()
     {
