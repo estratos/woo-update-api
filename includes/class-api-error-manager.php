@@ -9,8 +9,17 @@ class Woo_Update_API_Error_Manager {
     private $time_window = 300; // 5 minutos
 
     public function __construct() {
-        // No mostrar errores al usuario
+        // CORREGIDO: El método SÍ existe ahora
         add_filter('woocommerce_get_price_html', [$this, 'handle_price_display_errors'], 10, 2);
+    }
+
+    /**
+     * CORREGIDO: Método que faltaba para manejar la visualización de precios
+     */
+    public function handle_price_display_errors($price_html, $product) {
+        // Si hay un error, solo mostrar el precio normal sin errores
+        // Este método es llamado por el filtro woocommerce_get_price_html
+        return $price_html;
     }
 
     /**
