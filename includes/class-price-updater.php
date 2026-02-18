@@ -7,7 +7,6 @@ class Price_Updater
 {
     private static $instance = null;
     private $api_handler;
-    private $should_update = false;
 
     public static function instance()
     {
@@ -25,80 +24,69 @@ class Price_Updater
 
     private function init_hooks()
     {
-        // Detectar si debemos actualizar DESPUÉS de que WordPress cargue
-        add_action('wp', [$this, 'check_if_should_update']);
+        // SOLO en página de producto
+        add_action('wp', [$this, 'setup_product_filters']);
         
-        // Admin hooks (siempre activos)
+        // Admin hooks
         if (is_admin()) {
             add_action('woocommerce_product_options_general_product_data', [$this, 'add_refresh_ui']);
-            add_action('admin_notices', [$this, 'admin_notice_fallback_mode']);
         }
     }
 
     /**
-     * Verificar si estamos en página de producto
+     * Configurar filters SOLO en página de producto
      */
-    public function check_if_should_update()
+    public function setup_product_filters()
     {
         if (is_product()) {
-            $this->should_update = true;
+            error_log('[Price Updater] Activando filters para página de producto');
             
-            // Agregar filters SOLO en página de producto
-            add_filter('woocommerce_product_get_price', [$this, 'update_price'], 20, 2);
-            add_filter('woocommerce_product_get_regular_price', [$this, 'update_price'], 20, 2);
-            add_filter('woocommerce_product_get_sale_price', [$this, 'update_price'], 20, 2);
-            add_filter('woocommerce_product_variation_get_price', [$this, 'update_price'], 20, 2);
-            add_filter('woocommerce_product_variation_get_regular_price', [$this, 'update_price'], 20, 2);
-            add_filter('woocommerce_product_variation_get_sale_price', [$this, 'update_price'], 20, 2);
+            // SIN CACHÉ - SIEMPRE consulta API
+            add_filter('woocommerce_product_get_price', [$this, 'get_price_from_api'], 999, 2);
+            add_filter('woocommerce_product_get_regular_price', [$this, 'get_price_from_api'], 999, 2);
+            add_filter('woocommerce_product_get_sale_price', [$this, 'get_price_from_api'], 999, 2);
+            add_filter('woocommerce_product_variation_get_price', [$this, 'get_price_from_api'], 999, 2);
+            add_filter('woocommerce_product_variation_get_regular_price', [$this, 'get_price_from_api'], 999, 2);
             
             // Stock
-            add_filter('woocommerce_product_get_stock_quantity', [$this, 'update_stock_display'], 20, 2);
-            add_filter('woocommerce_variation_get_stock_quantity', [$this, 'update_stock_display'], 20, 2);
+            add_filter('woocommerce_product_get_stock_quantity', [$this, 'get_stock_from_api'], 999, 2);
+            add_filter('woocommerce_variation_get_stock_quantity', [$this, 'get_stock_from_api'], 999, 2);
         }
     }
 
     /**
-     * ACTUALIZAR PRECIO - SOLO EN PÁGINA DE PRODUCTO
+     * OBTENER PRECIO DE API - SIN CACHÉ
      */
-    public function update_price($price, $product)
+    public function get_price_from_api($price, $product)
     {
-        // Seguridad: solo ejecutar en página de producto
-        if (!$this->should_update) {
-            return $price;
-        }
-
         try {
             $product_id = $product->get_id();
             
-            // Cache de sesión (5 minutos)
-            $cache_key = 'woo_api_price_' . $product_id;
-            $cached_price = $this->get_session_cache($cache_key);
+            error_log('[Price Updater] Consultando precio API para: ' . $product_id);
             
-            if ($cached_price !== null) {
-                return $cached_price;
-            }
-
-            // Obtener de API
-            $api_data = $this->api_handler->get_product_data($product_id, $product->get_sku());
-
+            // Usar método DIRECTO (sin caché)
+            $api_data = $this->api_handler->get_product_data_direct($product_id, $product->get_sku());
+            
             if ($api_data === false) {
+                error_log('[Price Updater] No se pudo obtener datos API, usando BD: ' . $price);
                 return $price;
             }
-
-            // Verificar precio
+            
+            // Obtener precio
             if (isset($api_data['price_mxn'])) {
                 $api_price = floatval($api_data['price_mxn']);
-            } elseif (isset($api_data['price'])) {
-                $api_price = floatval($api_data['price']);
-            } else {
-                return $price;
+                error_log('[Price Updater] Precio API (MXN): ' . $api_price);
+                return $api_price;
             }
-
-            // Guardar en cache de sesión
-            $this->set_session_cache($cache_key, $api_price, 300);
-
-            return $api_price;
-
+            
+            if (isset($api_data['price'])) {
+                $api_price = floatval($api_data['price']);
+                error_log('[Price Updater] Precio API: ' . $api_price);
+                return $api_price;
+            }
+            
+            return $price;
+            
         } catch (Exception $e) {
             error_log('[Price Updater] Error: ' . $e->getMessage());
             return $price;
@@ -106,61 +94,33 @@ class Price_Updater
     }
 
     /**
-     * ACTUALIZAR STOCK - SOLO EN PÁGINA DE PRODUCTO
+     * OBTENER STOCK DE API - SIN CACHÉ
      */
-    public function update_stock_display($quantity, $product)
+    public function get_stock_from_api($quantity, $product)
     {
-        if (!$this->should_update) {
-            return $quantity;
-        }
-
         try {
             $product_id = $product->get_id();
             
-            $cache_key = 'woo_api_stock_' . $product_id;
-            $cached_stock = $this->get_session_cache($cache_key);
+            error_log('[Price Updater] Consultando stock API para: ' . $product_id);
             
-            if ($cached_stock !== null) {
-                return $cached_stock;
-            }
-
-            $api_data = $this->api_handler->get_product_data($product_id, $product->get_sku());
-
+            $api_data = $this->api_handler->get_product_data_direct($product_id, $product->get_sku());
+            
             if ($api_data && isset($api_data['stock_quantity'])) {
-                $stock = intval($api_data['stock_quantity']);
-                $this->set_session_cache($cache_key, $stock, 300);
-                return max(0, $stock);
+                $api_stock = intval($api_data['stock_quantity']);
+                error_log('[Price Updater] Stock API: ' . $api_stock);
+                return $api_stock;
             }
-
+            
             return $quantity;
-
+            
         } catch (Exception $e) {
-            error_log('[Stock Display] Error: ' . $e->getMessage());
+            error_log('[Price Updater] Error stock: ' . $e->getMessage());
             return $quantity;
         }
     }
 
     /**
-     * CACHE DE SESIÓN
-     */
-    private function get_session_cache($key)
-    {
-        if (!function_exists('WC') || !WC()->session) {
-            return null;
-        }
-        return WC()->session->get($key);
-    }
-
-    private function set_session_cache($key, $value, $expire = 300)
-    {
-        if (!function_exists('WC') || !WC()->session) {
-            return;
-        }
-        WC()->session->set($key, $value);
-    }
-
-    /**
-     * ADMIN UI - SIN CAMBIOS
+     * ADMIN UI - Botones de sincronización (sin cambios)
      */
     public function add_refresh_ui()
     {
@@ -200,7 +160,7 @@ class Price_Updater
                     $time_diff = human_time_diff(strtotime($last_sync), current_time('timestamp'));
                     echo esc_html__('Last sync:', 'woo-update-api') . ' ' . $time_diff . ' ' . esc_html__('ago', 'woo-update-api');
                 } else {
-                    esc_html_e('Never synced to database', 'woo-update-api');
+                    esc_html_e('Never synced', 'woo-update-api');
                 }
                 ?>
             </div>
@@ -208,16 +168,5 @@ class Price_Updater
             <div class="woo-update-api-result"></div>
         </div>
         <?php
-    }
-
-    public function admin_notice_fallback_mode()
-    {
-        if ($this->api_handler->is_in_fallback_mode()) {
-            ?>
-            <div class="notice notice-warning is-dismissible">
-                <p><?php _e('WooCommerce Update API is currently in fallback mode. The external API service is unavailable, so default WooCommerce pricing and inventory data is being used.', 'woo-update-api'); ?></p>
-            </div>
-            <?php
-        }
     }
 }
