@@ -38,7 +38,16 @@ class Woo_Update_API_Price_Updater {
         }
 
         // Obtener datos de API con caché en memoria
-        $api_data = $this->api_handler->get_product_data_with_memory_cache($product_id, $sku);
+        // Attempt to retrieve from persistent cache
+        $cache_ttl = Woo_Update_API()->get_settings()->get_cache_time();
+        $api_data = Woo_Update_API_Cache::get($sku);
+        if ($api_data === false) {
+            // Not in cache, fetch directly and store
+            $api_data = $this->api_handler->get_product_data_direct($product_id, $sku);
+            if ($api_data !== false) {
+                Woo_Update_API_Cache::set($sku, $api_data, $cache_ttl);
+            }
+        }
 
         if ($api_data && isset($api_data['price'])) {
             // Guardar en caché de memoria

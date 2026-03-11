@@ -30,7 +30,7 @@ require_once WOO_UPDATE_API_PATH . 'includes/class-api-handler.php';
 require_once WOO_UPDATE_API_PATH . 'includes/class-stock-synchronizer.php';
 require_once WOO_UPDATE_API_PATH . 'includes/class-price-updater.php';
 require_once WOO_UPDATE_API_PATH . 'includes/class-ajax-handler.php';
-require_once WOO_UPDATE_API_PATH . 'includes/class-api-error-manager.php';
+require_once WOO_UPDATE_API_PATH . 'includes/class-cache.php';
 
 class Woo_Update_API {
 

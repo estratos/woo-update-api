@@ -83,6 +83,14 @@ class Woo_Update_API_Settings {
             'woo-update-api',
             'woo_update_api_main'
         );
+        // New field: enable batch API requests (future feature)
+        add_settings_field(
+            'enable_batch',
+            __('Enable Batch API Requests', 'woo-update-api'),
+            [$this, 'render_enable_batch_field'],
+            'woo-update-api',
+            'woo_update_api_main'
+        );
 
         add_settings_field(
             'test_connection',
@@ -152,7 +160,19 @@ class Woo_Update_API_Settings {
         <?php
     }
 
-    public function render_test_connection_field() {
+        // Render checkbox for enabling batch API requests (future use)
+        public function render_enable_batch_field() {
+            $value = isset($this->options['enable_batch']) ? (bool)$this->options['enable_batch'] : false;
+            ?>
+            <label>
+                <input type="checkbox" name="<?php echo $this->option_name; ?>[enable_batch]" value="1" <?php checked( $value, true ); ?> />
+                <?php _e('Activar consultas por lotes a la API (requiere soporte del servidor)', 'woo-update-api'); ?>
+            </label>
+            <p class="description"><?php _e('Marque esta opción para habilitar la funcionalidad de consultas por lotes cuando esté disponible en la API.', 'woo-update-api'); ?></p>
+            <?php
+        }
+
+        public function render_test_connection_field() {
         ?>
         <div style="display: flex; align-items: center; gap: 10px;">
             <button type="button" id="woo_update_api_test_btn" class="button button-secondary">
@@ -182,6 +202,8 @@ class Woo_Update_API_Settings {
         // Validate Cache Time
         $cache_time = intval($input['cache_time']);
         $output['cache_time'] = max(30, min(3600, $cache_time));
+        // Validate enable_batch checkbox (optional)
+        $output['enable_batch'] = !empty($input['enable_batch']) ? 1 : 0;
 
         return $output;
     }
