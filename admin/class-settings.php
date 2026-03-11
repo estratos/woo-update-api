@@ -7,275 +7,323 @@ class Woo_Update_API_Settings {
     public function __construct() {
         add_action('admin_menu', [$this, 'add_admin_menu']);
         add_action('admin_init', [$this, 'register_settings']);
-        add_action('wp_ajax_woo_update_api_test_connection', [$this, 'ajax_test_connection']);
-        add_action('admin_enqueue_scripts', [$this, 'enqueue_admin_scripts']);
+        
+        // Cargar opciones
+        $this->options = get_option($this->option_name, $this->get_defaults());
     }
 
-    public function enqueue_admin_scripts($hook) {
-        if ($hook !== 'settings_page_woo-update-api') {
-            return;
-        }
-
-        wp_enqueue_script(
-            'woo-update-api-admin',
-            WOO_UPDATE_API_URL . 'admin/js/admin-scripts.js',
-            ['jquery'],
-            WOO_UPDATE_API_VERSION,
-            true
-        );
-
-        wp_localize_script('woo-update-api-admin', 'wooUpdateApi', [
-            'ajax_url' => admin_url('admin-ajax.php'),
-            'nonce' => wp_create_nonce('woo_update_api_test_connection'),
-            'messages' => [
-                'testing' => __('Probando conexión...', 'woo-update-api'),
-                'success' => __('¡Conexión exitosa!', 'woo-update-api'),
-                'error' => __('Error de conexión: ', 'woo-update-api'),
-                'invalid_response' => __('Respuesta inválida de la API', 'woo-update-api')
-            ]
-        ]);
+    /**
+     * Valores por defecto
+     */
+    private function get_defaults() {
+        return [
+            'api_url' => '',
+            'api_key' => '',
+            'enable_cache' => true,
+            'cache_ttl' => 300, // 5 minutos
+            'enable_ajax_cache' => true,
+            'enable_batch' => false,
+            'batch_size' => 10,
+            'debug_mode' => false,
+            'excluded_categories' => []
+        ];
     }
 
+    /**
+     * Agregar al menú de administración
+     */
     public function add_admin_menu() {
         add_options_page(
-            __('WooCommerce Update API', 'woo-update-api'),
+            __('WooCommerce Update API Settings', 'woo-update-api'),
             __('Woo Update API', 'woo-update-api'),
             'manage_options',
             'woo-update-api',
             [$this, 'render_settings_page']
         );
+
+        // Agregar al menú de WooCommerce también
+        add_submenu_page(
+            'woocommerce',
+            __('Update API Settings', 'woo-update-api'),
+            __('Update API', 'woo-update-api'),
+            'manage_options',
+            'woo-update-api-settings',
+            [$this, 'render_settings_page']
+        );
     }
 
+    /**
+     * Registrar settings
+     */
     public function register_settings() {
         register_setting(
+            'woo_update_api_settings_group',
             $this->option_name,
-            $this->option_name,
-            [$this, 'validate_settings']
+            [$this, 'sanitize_settings']
         );
 
+        // Sección API
         add_settings_section(
-            'woo_update_api_main',
-            __('Configuración de la API', 'woo-update-api'),
-            [$this, 'render_main_section'],
+            'woo_update_api_section_api',
+            __('API Configuration', 'woo-update-api'),
+            [$this, 'render_section_api'],
             'woo-update-api'
         );
 
+        // Campo API URL
         add_settings_field(
             'api_url',
             __('API URL', 'woo-update-api'),
-            [$this, 'render_api_url_field'],
+            [$this, 'render_field_api_url'],
             'woo-update-api',
-            'woo_update_api_main'
+            'woo_update_api_section_api'
         );
 
+        // Campo API Key
         add_settings_field(
             'api_key',
             __('API Key', 'woo-update-api'),
-            [$this, 'render_api_key_field'],
+            [$this, 'render_field_api_key'],
             'woo-update-api',
-            'woo_update_api_main'
+            'woo_update_api_section_api'
         );
 
-        add_settings_field(
-            'cache_time',
-            __('Cache Time (segundos)', 'woo-update-api'),
-            [$this, 'render_cache_time_field'],
-            'woo-update-api',
-            'woo_update_api_main'
+        // Sección Caché
+        add_settings_section(
+            'woo_update_api_section_cache',
+            __('Cache Configuration', 'woo-update-api'),
+            [$this, 'render_section_cache'],
+            'woo-update-api'
         );
-        // New field: enable batch API requests (future feature)
+
+        // Campo Enable Cache
+        add_settings_field(
+            'enable_cache',
+            __('Enable Persistent Cache', 'woo-update-api'),
+            [$this, 'render_field_enable_cache'],
+            'woo-update-api',
+            'woo_update_api_section_cache'
+        );
+
+        // Campo Cache TTL
+        add_settings_field(
+            'cache_ttl',
+            __('Cache TTL (seconds)', 'woo-update-api'),
+            [$this, 'render_field_cache_ttl'],
+            'woo-update-api',
+            'woo_update_api_section_cache'
+        );
+
+        // Campo Enable AJAX Cache
+        add_settings_field(
+            'enable_ajax_cache',
+            __('Enable Cache for AJAX', 'woo-update-api'),
+            [$this, 'render_field_enable_ajax_cache'],
+            'woo-update-api',
+            'woo_update_api_section_cache'
+        );
+
+        // Sección Avanzada
+        add_settings_section(
+            'woo_update_api_section_advanced',
+            __('Advanced Settings', 'woo-update-api'),
+            [$this, 'render_section_advanced'],
+            'woo-update-api'
+        );
+
+        // Campo Batch Mode
         add_settings_field(
             'enable_batch',
-            __('Enable Batch API Requests', 'woo-update-api'),
-            [$this, 'render_enable_batch_field'],
+            __('Enable Batch Mode', 'woo-update-api'),
+            [$this, 'render_field_enable_batch'],
             'woo-update-api',
-            'woo_update_api_main'
+            'woo_update_api_section_advanced'
         );
 
+        // Campo Debug Mode
         add_settings_field(
-            'test_connection',
-            __('Probar Conexión', 'woo-update-api'),
-            [$this, 'render_test_connection_field'],
+            'debug_mode',
+            __('Debug Mode', 'woo-update-api'),
+            [$this, 'render_field_debug_mode'],
             'woo-update-api',
-            'woo_update_api_main'
+            'woo_update_api_section_advanced'
         );
     }
 
+    /**
+     * Sanitizar settings
+     */
+    public function sanitize_settings($input) {
+        $sanitized = [];
+
+        // API URL
+        $sanitized['api_url'] = isset($input['api_url']) 
+            ? esc_url_raw($input['api_url']) 
+            : '';
+
+        // API Key
+        $sanitized['api_key'] = isset($input['api_key']) 
+            ? sanitize_text_field($input['api_key']) 
+            : '';
+
+        // Cache settings
+        $sanitized['enable_cache'] = isset($input['enable_cache']) && $input['enable_cache'] == 1;
+        $sanitized['cache_ttl'] = isset($input['cache_ttl']) 
+            ? max(60, min(3600, intval($input['cache_ttl']))) 
+            : 300;
+        $sanitized['enable_ajax_cache'] = isset($input['enable_ajax_cache']) && $input['enable_ajax_cache'] == 1;
+
+        // Advanced
+        $sanitized['enable_batch'] = isset($input['enable_batch']) && $input['enable_batch'] == 1;
+        $sanitized['debug_mode'] = isset($input['debug_mode']) && $input['debug_mode'] == 1;
+
+        return $sanitized;
+    }
+
+    /**
+     * Renderizar página de settings
+     */
     public function render_settings_page() {
-        $this->options = get_option($this->option_name);
         ?>
         <div class="wrap">
             <h1><?php _e('WooCommerce Update API Settings', 'woo-update-api'); ?></h1>
+            
+            <?php if (isset($_GET['settings-updated'])): ?>
+                <div class="notice notice-success is-dismissible">
+                    <p><?php _e('Settings saved!', 'woo-update-api'); ?></p>
+                </div>
+            <?php endif; ?>
+
             <form method="post" action="options.php">
                 <?php
-                settings_fields($this->option_name);
+                settings_fields('woo_update_api_settings_group');
                 do_settings_sections('woo-update-api');
                 submit_button();
                 ?>
             </form>
+
+            <?php if ($this->get_debug_mode()): ?>
+                <div class="card">
+                    <h2><?php _e('Cache Statistics', 'woo-update-api'); ?></h2>
+                    <pre><?php print_r(Woo_Update_API_Cache::get_stats()); ?></pre>
+                    <button type="button" class="button" id="woo-update-api-reset-stats">
+                        <?php _e('Reset Statistics', 'woo-update-api'); ?>
+                    </button>
+                    <button type="button" class="button" id="woo-update-api-clear-cache">
+                        <?php _e('Clear All Cache', 'woo-update-api'); ?>
+                    </button>
+                </div>
+
+                <script>
+                jQuery(document).ready(function($) {
+                    $('#woo-update-api-reset-stats').on('click', function() {
+                        $.post(ajaxurl, {
+                            action: 'woo_update_api_reset_stats',
+                            nonce: '<?php echo wp_create_nonce('woo_update_api_admin'); ?>'
+                        }, function(response) {
+                            if (response.success) {
+                                location.reload();
+                            }
+                        });
+                    });
+
+                    $('#woo-update-api-clear-cache').on('click', function() {
+                        $.post(ajaxurl, {
+                            action: 'woo_update_api_clear_cache',
+                            nonce: '<?php echo wp_create_nonce('woo_update_api_admin'); ?>'
+                        }, function(response) {
+                            if (response.success) {
+                                alert('Cache cleared!');
+                            }
+                        });
+                    });
+                });
+                </script>
+            <?php endif; ?>
         </div>
         <?php
     }
 
-    public function render_main_section() {
-        echo '<p>' . __('Configura los parámetros de conexión a la API externa', 'woo-update-api') . '</p>';
+    // Render methods para cada campo
+    public function render_section_api() {
+        echo '<p>' . __('Configure the external API connection.', 'woo-update-api') . '</p>';
     }
 
-    public function render_api_url_field() {
-        $value = isset($this->options['api_url']) ? esc_url($this->options['api_url']) : 'https://catalogdev.estratosdev.top/api/woocommerce/v1/products';
-        ?>
-        <input type="url" 
-               id="woo_update_api_url"
-               name="<?php echo $this->option_name; ?>[api_url]" 
-               value="<?php echo $value; ?>" 
-               class="regular-text"
-               placeholder="https://api.example.com/products">
-        <p class="description">URL base del endpoint de la API</p>
-        <?php
+    public function render_field_api_url() {
+        $value = $this->get_api_url();
+        echo '<input type="url" name="' . $this->option_name . '[api_url]" value="' . esc_attr($value) . '" class="regular-text">';
+        echo '<p class="description">' . __('URL of the external API (e.g., https://api.example.com/products)', 'woo-update-api') . '</p>';
     }
 
-    public function render_api_key_field() {
-        $value = isset($this->options['api_key']) ? esc_attr($this->options['api_key']) : '';
-        ?>
-        <input type="password" 
-               id="woo_update_api_key"
-               name="<?php echo $this->option_name; ?>[api_key]" 
-               value="<?php echo $value; ?>" 
-               class="regular-text">
-        <p class="description">Clave de autenticación para la API</p>
-        <?php
+    public function render_field_api_key() {
+        $value = $this->get_api_key();
+        echo '<input type="text" name="' . $this->option_name . '[api_key]" value="' . esc_attr($value) . '" class="regular-text">';
     }
 
-    public function render_cache_time_field() {
-        $value = isset($this->options['cache_time']) ? intval($this->options['cache_time']) : 300;
-        $value = max(30, min(3600, $value));
-        ?>
-        <input type="number" 
-               name="<?php echo $this->option_name; ?>[cache_time]" 
-               value="<?php echo $value; ?>" 
-               min="30" 
-               max="3600" 
-               step="1">
-        <p class="description">Tiempo de caché en segundos (mínimo 30, máximo 3600)</p>
-        <?php
+    public function render_section_cache() {
+        echo '<p>' . __('Configure caching behavior to reduce API calls.', 'woo-update-api') . '</p>';
     }
 
-        // Render checkbox for enabling batch API requests (future use)
-        public function render_enable_batch_field() {
-            $value = isset($this->options['enable_batch']) ? (bool)$this->options['enable_batch'] : false;
-            ?>
-            <label>
-                <input type="checkbox" name="<?php echo $this->option_name; ?>[enable_batch]" value="1" <?php checked( $value, true ); ?> />
-                <?php _e('Activar consultas por lotes a la API (requiere soporte del servidor)', 'woo-update-api'); ?>
-            </label>
-            <p class="description"><?php _e('Marque esta opción para habilitar la funcionalidad de consultas por lotes cuando esté disponible en la API.', 'woo-update-api'); ?></p>
-            <?php
-        }
-
-        public function render_test_connection_field() {
-        ?>
-        <div style="display: flex; align-items: center; gap: 10px;">
-            <button type="button" id="woo_update_api_test_btn" class="button button-secondary">
-                <?php _e('Probar Conexión', 'woo-update-api'); ?>
-            </button>
-            <span id="woo_update_api_test_result" style="display: inline-block; padding: 4px 8px;"></span>
-        </div>
-        <p class="description">
-            <?php _e('Prueba la conexión usando el SKU de prueba "ABC0000"', 'woo-update-api'); ?>
-        </p>
-        <?php
+    public function render_field_enable_cache() {
+        $checked = $this->is_cache_enabled() ? 'checked' : '';
+        echo '<input type="checkbox" name="' . $this->option_name . '[enable_cache]" value="1" ' . $checked . '>';
+        echo '<label>' . __('Enable persistent caching of API responses', 'woo-update-api') . '</label>';
     }
 
-    public function validate_settings($input) {
-        $output = [];
-
-        // Validate API URL
-        if (!empty($input['api_url'])) {
-            $output['api_url'] = esc_url_raw($input['api_url']);
-        }
-
-        // Validate API Key
-        if (!empty($input['api_key'])) {
-            $output['api_key'] = sanitize_text_field($input['api_key']);
-        }
-
-        // Validate Cache Time
-        $cache_time = intval($input['cache_time']);
-        $output['cache_time'] = max(30, min(3600, $cache_time));
-        // Validate enable_batch checkbox (optional)
-        $output['enable_batch'] = !empty($input['enable_batch']) ? 1 : 0;
-
-        return $output;
+    public function render_field_cache_ttl() {
+        $value = $this->get_cache_ttl();
+        echo '<input type="number" name="' . $this->option_name . '[cache_ttl]" value="' . $value . '" min="60" max="3600" step="10">';
+        echo '<p class="description">' . __('Time in seconds to cache API responses (60-3600)', 'woo-update-api') . '</p>';
     }
 
-    /**
-     * AJAX handler para probar la conexión
-     */
-    public function ajax_test_connection() {
-        // Verificar nonce y permisos
-        if (!check_ajax_referer('woo_update_api_test_connection', 'nonce', false)) {
-            wp_send_json_error('Error de seguridad');
-        }
-
-        if (!current_user_can('manage_options')) {
-            wp_send_json_error('Permisos insuficientes');
-        }
-
-        $api_url = sanitize_text_field($_POST['api_url'] ?? '');
-        $api_key = sanitize_text_field($_POST['api_key'] ?? '');
-
-        if (empty($api_url) || empty($api_key)) {
-            wp_send_json_error('URL o API Key no proporcionados');
-        }
-
-        // SKU de prueba que siempre devuelve success:true
-        $test_sku = 'ABC0000';
-
-        // Construir URL de prueba
-        $test_url = add_query_arg([
-            'sku' => urlencode($test_sku),
-            'api_key' => $api_key
-        ], $api_url);
-
-        // Realizar petición de prueba
-        $response = wp_remote_get($test_url, [
-            'timeout' => 15,
-            'headers' => [
-                'Cache-Control' => 'no-cache, no-store, must-revalidate'
-            ]
-        ]);
-
-        if (is_wp_error($response)) {
-            wp_send_json_error('Error de conexión: ' . $response->get_error_message());
-        }
-
-        $body = wp_remote_retrieve_body($response);
-        $data = json_decode($body, true);
-
-        if (json_last_error() !== JSON_ERROR_NONE) {
-            wp_send_json_error('Respuesta inválida: ' . json_last_error_msg());
-        }
-
-        // Verificar que la respuesta sea exactamente {"success":true}
-        if (isset($data['success']) && $data['success'] === true) {
-            wp_send_json_success('Conexión exitosa - API responde correctamente');
-        } else {
-            wp_send_json_error('La API no devolvió success:true');
-        }
+    public function render_field_enable_ajax_cache() {
+        $checked = $this->is_ajax_cache_enabled() ? 'checked' : '';
+        echo '<input type="checkbox" name="' . $this->option_name . '[enable_ajax_cache]" value="1" ' . $checked . '>';
+        echo '<label>' . __('Enable cache for AJAX requests', 'woo-update-api') . '</label>';
     }
 
+    public function render_section_advanced() {
+        echo '<p>' . __('Advanced configuration options.', 'woo-update-api') . '</p>';
+    }
+
+    public function render_field_enable_batch() {
+        $checked = $this->is_batch_enabled() ? 'checked' : '';
+        echo '<input type="checkbox" name="' . $this->option_name . '[enable_batch]" value="1" ' . $checked . '>';
+        echo '<label>' . __('Enable batch API requests (if supported by API)', 'woo-update-api') . '</label>';
+    }
+
+    public function render_field_debug_mode() {
+        $checked = $this->get_debug_mode() ? 'checked' : '';
+        echo '<input type="checkbox" name="' . $this->option_name . '[debug_mode]" value="1" ' . $checked . '>';
+        echo '<label>' . __('Enable debug mode (shows cache stats, logs more info)', 'woo-update-api') . '</label>';
+    }
+
+    // Getters
     public function get_api_url() {
-        $options = get_option($this->option_name);
-        return isset($options['api_url']) ? $options['api_url'] : '';
+        return $this->options['api_url'] ?? '';
     }
 
     public function get_api_key() {
-        $options = get_option($this->option_name);
-        return isset($options['api_key']) ? $options['api_key'] : '';
+        return $this->options['api_key'] ?? '';
     }
 
-    public function get_cache_time() {
-        $options = get_option($this->option_name);
-        return isset($options['cache_time']) ? intval($options['cache_time']) : 300;
+    public function is_cache_enabled() {
+        return (bool)($this->options['enable_cache'] ?? true);
+    }
+
+    public function get_cache_ttl() {
+        return (int)($this->options['cache_ttl'] ?? 300);
+    }
+
+    public function is_ajax_cache_enabled() {
+        return (bool)($this->options['enable_ajax_cache'] ?? true);
+    }
+
+    public function is_batch_enabled() {
+        return (bool)($this->options['enable_batch'] ?? false);
+    }
+
+    public function get_debug_mode() {
+        return (bool)($this->options['debug_mode'] ?? false);
     }
 }
